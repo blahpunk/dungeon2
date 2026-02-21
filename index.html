@@ -19,7 +19,7 @@
         display: grid;
         grid-template-rows: auto 1fr;
         min-height: 100vh;
-        overflow: hidden; /* no page scroll */
+        overflow: auto; /* allow page scroll */
       }
 
       header {
@@ -55,7 +55,7 @@
         grid-template-columns: 1fr 380px;
         gap: 12px;
         padding: 10px;
-        overflow: hidden;
+        overflow: visible;
         align-items: stretch;
       }
 
@@ -65,7 +65,7 @@
         display: grid;
         grid-template-rows: 1fr auto;
         gap: 10px;
-        overflow: hidden;
+        overflow: visible;
       }
 
       /* Main canvas container: center a square canvas that fills the available height */
@@ -139,25 +139,11 @@
         display: flex;
         flex-direction: column;
         gap: 10px;
-        overflow: hidden;
+        overflow: visible;
       }
 
-      /* Collapsed panels state: shrink right column to zero while keeping layout stable */
-      #wrap.panels-collapsed {
-        grid-template-columns: 1fr 0px;
-      }
-      #wrap.panels-collapsed #rightCol {
-        width: 0;
-        min-width: 0;
-        padding: 0;
-        pointer-events: none;
-        opacity: 0;
-      }
-
-      /* Smooth transition when toggling panels */
-      #wrap {
-        transition: grid-template-columns 220ms ease, padding 180ms ease;
-      }
+      /* Smooth transition for layout (panels are always visible) */
+      #wrap { transition: grid-template-columns 220ms ease, padding 180ms ease; }
 
       #miniWrap {
         border: 1px solid #24304a;
@@ -321,7 +307,6 @@
   <body>
     <header>
       <div class="title">DungeonPunk!</div>
-      <button id="btnTogglePanels" title="Toggle side panels">Toggle UI</button>
       <button id="btnNew">New seed</button>
       <button id="btnFog">Toggle fog</button>
       <button id="btnReset">Hard reset</button>
