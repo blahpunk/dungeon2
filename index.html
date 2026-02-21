@@ -47,12 +47,7 @@
         opacity: 0.95;
         font-size: 13px;
         white-space: pre;
-        position: absolute;
-        top: 12px;
-        right: 12px;
-        padding: 6px 10px;
         background: transparent;
-        z-index: 1300;
         text-shadow: 0 1px 2px rgba(0,0,0,0.8);
         pointer-events: none;
       }
@@ -144,6 +139,18 @@
         max-width: calc(100% - 32px);
         pointer-events: auto;
       }
+      #invOverlay {
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        z-index: 1300;
+        max-width: min(42%, 420px);
+        pointer-events: auto;
+      }
+      #invOverlay .panel { background: transparent; border: none; padding: 0; }
+      #invOverlay h3 { margin: 0 0 6px 0; font-size: 13px; }
+
+      #metaWrap { position: absolute; top: 12px; right: 12px; z-index: 1300; pointer-events: none; display:flex; flex-direction:column; align-items:flex-end }
       #logTitle { display: none; }
       #logTitle {
         font-weight: 700;
@@ -238,6 +245,17 @@
         background: #0a0f1b;
       }
       .invItem button { padding: 5px 8px; border-radius: 10px; }
+      .invItem .invLabelBtn {
+        background: transparent;
+        border: none;
+        padding: 0;
+        margin: 0;
+        text-align: left;
+        color: inherit;
+        font: inherit;
+        cursor: pointer;
+        width: 100%;
+      }
       .muted { opacity: 0.75; }
 
       /* Panels below minimap: scroll internally if needed */
@@ -349,7 +367,27 @@
       <div id="leftCol">
         <div id="mainCanvasWrap">
           <canvas id="c"></canvas>
-          <div class="meta" id="meta"></div>
+
+          <div id="invOverlay">
+            <div id="invPanel">
+              <div class="panel" style="background:transparent;border:none;padding:0;">
+                <h3 style="margin:0 0 6px 0;font-size:13px;">Inventory <span class="muted">(I)</span></h3>
+                <div class="muted" style="font-size:12px;margin-bottom:8px;">Use/equip with number keys (1–9) or tap an item.</div>
+                <div id="invList"></div>
+              </div>
+            </div>
+          </div>
+
+          <div id="metaWrap">
+            <div class="meta" id="meta"></div>
+            <div id="metaExtras" style="margin-top:8px; text-align:right; pointer-events:none;">
+              <div style="font-size:12px; opacity:0.9;">Equipment</div>
+              <div id="equipText" class="muted" style="white-space:pre-wrap; font-size:13px;"></div>
+              <div style="height:6px"></div>
+              <div style="font-size:12px; opacity:0.9;">Effects</div>
+              <div id="effectsText" class="muted" style="white-space:pre-wrap; font-size:13px;"></div>
+            </div>
+          </div>
 
           <div id="logPanel">
             <div id="logTitle">Message log</div>
@@ -378,24 +416,6 @@
         </div>
 
         <div id="rightScroll">
-          <div class="panel" id="equip">
-            <h3>Equipment</h3>
-            <div id="equipText" class="muted"></div>
-          </div>
-
-          <div class="panel" id="effects">
-            <h3>Effects</h3>
-            <div id="effectsText" class="muted"></div>
-          </div>
-
-          <div class="panel" id="inv">
-            <h3>Inventory <span class="muted">(I)</span></h3>
-            <div class="muted" style="font-size:12px;margin-bottom:8px;">
-              Use/equip with number keys (1–9) or click “Use”.
-            </div>
-            <div id="invList"></div>
-          </div>
-
           <div id="help">
             Move: <code>Arrow</code>/<code>WASD</code> · Wait: <code>.</code>/<code>Space</code><br />
             Pickup: <code>G</code> · Use/Equip: <code>1–9</code> · Inventory: <code>I</code><br />

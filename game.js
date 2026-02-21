@@ -876,27 +876,21 @@ function renderInventory(state) {
     row.className = "invItem";
     row.tabIndex = 0;
 
-    const left = document.createElement("div");
     const nm = ITEM_TYPES[it.type]?.name ?? it.type;
+    const left = document.createElement("button");
+    left.className = 'invLabelBtn';
+    left.type = 'button';
     left.textContent = `${idx + 1}. ${nm}${isStackable(it.type) ? ` x${it.amount}` : ""}`;
-
-    const btn = document.createElement("button");
-    btn.textContent = "Use";
 
     const invoke = () => useInventoryIndex(state, idx);
 
-    // Button should not bubble up to the row (avoids double-invoke)
-    const btnClick = (e) => { e.stopPropagation(); invoke(); };
-    btn.addEventListener('click', btnClick);
-    btn.addEventListener('touchstart', (e) => { e.stopPropagation(); e.preventDefault(); invoke(); }, { passive: false });
-
-    // Make the whole row tappable/clickable
-    const rowClick = (e) => { if (e) e.preventDefault(); invoke(); };
-    row.addEventListener('click', rowClick);
-    row.addEventListener('touchstart', (e) => { e.preventDefault(); invoke(); }, { passive: false });
+    // The label itself is a transparent button; stop propagation to avoid
+    // any outer handlers and invoke use on click/tap.
+    const labelClick = (e) => { e.stopPropagation(); invoke(); };
+    left.addEventListener('click', labelClick);
+    left.addEventListener('touchstart', (e) => { e.stopPropagation(); e.preventDefault(); invoke(); }, { passive: false });
 
     row.appendChild(left);
-    row.appendChild(btn);
     invListEl.appendChild(row);
   });
 }
