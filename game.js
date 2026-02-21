@@ -616,7 +616,8 @@ function generateChunk(seedStr, z, cx, cy) {
     return true;
   }
 
-  const hasDownStairs = (z === 0 && cx === 0 && cy === 0) || rng() < STAIRS_DOWN_SPAWN_CHANCE;
+  // Keep start chunk dedicated to the surface ladder (no down stairs there).
+  const hasDownStairs = !(z === 0 && cx === 0 && cy === 0) && rng() < STAIRS_DOWN_SPAWN_CHANCE;
   if (hasDownStairs) {
     placeRandomStair(STAIRS_DOWN);
   }
@@ -1044,6 +1045,36 @@ function renderInventory(state) {
   });
 }
 
+function resolveSurfaceLink(state) {
+  const cand = state.surfaceLink;
+  if (cand && Number.isFinite(cand.x) && Number.isFinite(cand.y) && Number.isFinite(cand.z)) {
+    return { x: Math.floor(cand.x), y: Math.floor(cand.y), z: Math.floor(cand.z) };
+  }
+
+  // Backward-compat fallback for saves without surfaceLink: prefer stairs-up near start area.
+  const z = 0;
+  const targetX = Math.floor(CHUNK / 2);
+  const targetY = Math.floor(CHUNK / 2);
+  let best = null, bestD = Infinity;
+  for (let y = 0; y < CHUNK; y++) {
+    for (let x = 0; x < CHUNK; x++) {
+      const t = state.world.getTile(x, y, z);
+      if (t !== STAIRS_UP) continue;
+      const dx = x - targetX, dy = y - targetY;
+      const d = dx * dx + dy * dy;
+      if (d < bestD) { bestD = d; best = { x, y, z }; }
+    }
+  }
+  return best ?? { x: targetX, y: targetY, z };
+}
+
+function ensureSurfaceLinkTile(state) {
+  const link = resolveSurfaceLink(state);
+  state.surfaceLink = link;
+  state.world.setTile(link.x, link.y, link.z, STAIRS_UP);
+  return link;
+}
+
 function placeInitialSurfaceStairs(state) {
   const p = state.player;
   const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
@@ -1051,8 +1082,9 @@ function placeInitialSurfaceStairs(state) {
   for (const [dx, dy] of dirs) {
     const x = p.x + dx, y = p.y + dy, z = p.z;
     const t = state.world.getTile(x, y, z);
-    if (t === FLOOR || t === DOOR_OPEN || t === DOOR_CLOSED) {
+    if (t === FLOOR || t === DOOR_OPEN) {
       state.world.setTile(x, y, z, STAIRS_UP);
+      state.surfaceLink = { x, y, z };
       return;
     }
   }
@@ -1060,6 +1092,7 @@ function placeInitialSurfaceStairs(state) {
   const fx = p.x + 1, fy = p.y;
   state.world.setTile(fx, fy, p.z, FLOOR);
   state.world.setTile(fx, fy, p.z, STAIRS_UP);
+  state.surfaceLink = { x: fx, y: fy, z: p.z };
 }
 
 function makeNewGame(seedStr = randomSeedString()) {
@@ -1093,6 +1126,7 @@ function makeNewGame(seedStr = randomSeedString()) {
     turn: 0,
     visitedDoors: new Set(),
     exploredChunks: new Set(),
+    surfaceLink: null,
   };
 
   world.ensureChunksAround(0, 0, 0, VIEW_RADIUS + 2);
@@ -1109,6 +1143,7 @@ function makeNewGame(seedStr = randomSeedString()) {
   }
   if (best) { player.x = best.x; player.y = best.y; }
   placeInitialSurfaceStairs(state);
+  ensureSurfaceLinkTile(state);
 
   recalcDerivedStats(state);
   pushLog(state, "You enter the dungeon...");
@@ -1836,7 +1871,21 @@ function goToLevel(state, newZ, direction) {
   }
 
   if (direction === "down") {
-    carveLandingAndConnect(state, p.x, p.y, newZ, STAIRS_UP);
+    if (p.z === SURFACE_LEVEL && newZ === 0) {
+      const link = ensureSurfaceLinkTile(state);
+      state.world.ensureChunksAround(link.x, link.y, newZ, VIEW_RADIUS + 2);
+      p.x = link.x; p.y = link.y;
+
+      // Guarantee at least one escape tile from the return ladder.
+      const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+      let hasExit = false;
+      for (const [dx, dy] of dirs) {
+        if (state.world.isPassable(link.x + dx, link.y + dy, newZ)) { hasExit = true; break; }
+      }
+      if (!hasExit) state.world.setTile(link.x + 1, link.y, newZ, FLOOR);
+    } else {
+      carveLandingAndConnect(state, p.x, p.y, newZ, STAIRS_UP);
+    }
     pushLog(state, `You descend to depth ${newZ}.`);
   } else {
     if (newZ === SURFACE_LEVEL) {
@@ -1844,6 +1893,7 @@ function goToLevel(state, newZ, direction) {
       state.world.setTile(0, 0, newZ, STAIRS_DOWN);
     } else {
       carveLandingAndConnect(state, p.x, p.y, newZ, STAIRS_DOWN);
+      if (newZ === 0) ensureSurfaceLinkTile(state);
     }
     pushLog(state, `You ascend to depth ${newZ}.`);
   }
@@ -2425,6 +2475,7 @@ function exportSave(state) {
     turn: state.turn,
     visitedDoors,
     exploredChunks,
+    surfaceLink: state.surfaceLink ?? null,
   };
 
   return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
@@ -2529,6 +2580,7 @@ function importSave(saveStr) {
       turn: payload.turn ?? 0,
       visitedDoors: new Set(payload.visitedDoors ?? []),
       exploredChunks: new Set(payload.exploredChunks ?? []),
+      surfaceLink: payload.surfaceLink ?? null,
     };
 
     fogEnabled = !!payload.fog;
@@ -2543,6 +2595,8 @@ function importSave(saveStr) {
     state.player.effects = state.player.effects ?? [];
     state.player.maxHp = state.player.maxHp ?? 1800;
     state.player.hp = clamp(state.player.hp ?? 1800, 0, state.player.maxHp);
+    state.surfaceLink = resolveSurfaceLink(state);
+    ensureSurfaceLinkTile(state);
 
     recalcDerivedStats(state);
 
