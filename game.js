@@ -2227,6 +2227,46 @@ try {
   renderEffects(game);
   renderLog(game);
   document.addEventListener("keydown", (e) => onKey(game, e));
+  // Initialize touch controls (mobile): wire on-screen buttons to existing actions
+  function initTouchControls() {
+    try {
+      const tc = document.getElementById('touchControls');
+      if (!tc) return;
+
+      const dpadBtns = tc.querySelectorAll('.dpad-btn');
+      dpadBtns.forEach((btn) => {
+        const dx = Number(btn.dataset.dx || 0);
+        const dy = Number(btn.dataset.dy || 0);
+        const handler = (ev) => {
+          ev.preventDefault();
+          if (!game) return;
+          if (dx === 0 && dy === 0) takeTurn(game, waitTurn(game));
+          else takeTurn(game, playerMoveOrAttack(game, dx, dy));
+        };
+        btn.addEventListener('touchstart', handler, { passive: false });
+        btn.addEventListener('click', handler);
+      });
+
+      const actionBtns = tc.querySelectorAll('.action-btn');
+      const handleAction = (action) => {
+        if (!game) return;
+        if (action === 'interact') takeTurn(game, interactContext(game));
+        else if (action === 'pickup') takeTurn(game, pickup(game));
+        else if (action === 'wait') takeTurn(game, waitTurn(game));
+        else if (action === 'minimap') { minimapEnabled = !minimapEnabled; saveNow(game); }
+        else if (action === 'inventory') renderInventory(game);
+      };
+
+      actionBtns.forEach((btn) => {
+        const action = btn.dataset.action;
+        const handler = (ev) => { ev.preventDefault(); handleAction(action); };
+        btn.addEventListener('touchstart', handler, { passive: false });
+        btn.addEventListener('click', handler);
+      });
+    } catch (e) { /* ignore */ }
+  }
+
+  window.addEventListener('load', initTouchControls);
 
   function loop() {
     draw(game);

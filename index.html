@@ -243,6 +243,41 @@
         }
         #leftCol, #rightCol { overflow: visible; }
       }
+
+      /* Mobile touch controls (visible on small screens) */
+      #touchControls { display: none; }
+      @media (max-width: 760px) {
+        #touchControls {
+          display: flex;
+          position: fixed;
+          left: 12px;
+          right: 12px;
+          bottom: 12px;
+          gap: 12px;
+          align-items: flex-end;
+          pointer-events: auto;
+          z-index: 1200;
+        }
+
+        #dpad { display: flex; flex-direction: column; gap: 6px; }
+        #dpad > div { display: flex; gap: 6px; }
+        .dpad-btn, .action-btn {
+          background: rgba(24,32,50,0.9);
+          color: #e6e6e6;
+          border: 1px solid rgba(255,255,255,0.04);
+          border-radius: 10px;
+          min-width: 56px;
+          min-height: 48px;
+          font-size: 18px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          touch-action: manipulation;
+        }
+
+        .action-btn { min-width: 48px; padding: 8px; }
+        .dpad-btn.center { min-width: 44px; min-height: 44px; border-radius: 50%; }
+      }
     </style>
   </head>
 
@@ -321,5 +356,25 @@
     </div>
 
     <script type="module" src="./game.js"></script>
+    <!-- Mobile touch controls -->
+    <div id="touchControls" aria-hidden="false">
+      <div id="dpad" aria-label="D-pad">
+        <button class="dpad-btn" data-dx="0" data-dy="-1" title="Up">↑</button>
+        <div>
+          <button class="dpad-btn" data-dx="-1" data-dy="0" title="Left">←</button>
+          <button class="dpad-btn center" data-dx="0" data-dy="0" title="Wait">•</button>
+          <button class="dpad-btn" data-dx="1" data-dy="0" title="Right">→</button>
+        </div>
+        <button class="dpad-btn" data-dx="0" data-dy="1" title="Down">↓</button>
+      </div>
+
+      <div id="actions" aria-label="Actions">
+        <button class="action-btn" data-action="interact" title="Interact (E)">E</button>
+        <button class="action-btn" data-action="pickup" title="Pick up (G)">G</button>
+        <button class="action-btn" data-action="wait" title="Wait">•</button>
+        <button class="action-btn" data-action="minimap" title="Toggle minimap (M)">M</button>
+        <button class="action-btn" data-action="inventory" title="Inventory (I)">I</button>
+      </div>
+    </div>
   </body>
 </html>
