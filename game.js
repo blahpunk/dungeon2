@@ -694,6 +694,13 @@ function monsterTableForDepth(z) {
   if (z <= 10) return [{ id: "goblin", w: 3 }, { id: "slime", w: 5 }, { id: "skeleton", w: 3 }, { id: "archer", w: 2 }];
   return [{ id: "slime", w: 4 }, { id: "skeleton", w: 6 }, { id: "archer", w: 4 }];
 }
+
+function keyTypeForDepth(z, rng) {
+  if (z <= 4) return "key_red";
+  if (z <= 10) return rng() < 0.6 ? "key_blue" : "key_red";
+  return rng() < 0.55 ? "key_green" : "key_blue";
+}
+
 function samplePassableCellsInChunk(grid, rng, count) {
   const passable = (t) => t === FLOOR || t === DOOR_OPEN || t === DOOR_CLOSED || t === STAIRS_DOWN || t === STAIRS_UP;
   const cells = [];
@@ -710,6 +717,12 @@ function samplePassableCellsInChunk(grid, rng, count) {
 function chunkBaseSpawns(worldSeed, chunk) {
   const { z, cx, cy, grid, specials } = chunk;
   const rng = makeRng(`${worldSeed}|spawns|z${z}|${cx},${cy}`);
+  const isOpenCell = (x, y) => {
+    const t = grid[y]?.[x];
+    return t === FLOOR || t === DOOR_OPEN || t === STAIRS_DOWN || t === STAIRS_UP;
+  };
+  const occupiedItemCells = new Set();
+  const cellKey = (x, y) => `${x},${y}`;
 
   const depthBoost = clamp(z, 0, 60);
 
@@ -735,12 +748,38 @@ function chunkBaseSpawns(worldSeed, chunk) {
   }
 
   const items = [];
+  const pushItem = (item) => {
+    items.push(item);
+    occupiedItemCells.add(cellKey(item.lx, item.ly));
+  };
+  const findOpenCellNear = (ox, oy, maxR) => {
+    for (let attempt = 0; attempt < 36; attempt++) {
+      const dx = randInt(rng, -maxR, maxR);
+      const dy = randInt(rng, -maxR, maxR);
+      const x = clamp(ox + dx, 1, CHUNK - 2);
+      const y = clamp(oy + dy, 1, CHUNK - 2);
+      if (x === ox && y === oy) continue;
+      if (!isOpenCell(x, y)) continue;
+      if (occupiedItemCells.has(cellKey(x, y))) continue;
+      return { x, y };
+    }
+    for (let y = Math.max(1, oy - maxR); y <= Math.min(CHUNK - 2, oy + maxR); y++) {
+      for (let x = Math.max(1, ox - maxR); x <= Math.min(CHUNK - 2, ox + maxR); x++) {
+        if (x === ox && y === oy) continue;
+        if (!isOpenCell(x, y)) continue;
+        if (occupiedItemCells.has(cellKey(x, y))) continue;
+        return { x, y };
+      }
+    }
+    return null;
+  };
+
   for (let i = 0; i < itemCount; i++) {
     const c = cells[monsterCount + i];
     if (!c) break;
     const roll = rng();
-    // higher potion chance
-    const type = roll < 0.75 ? "potion" : "gold";
+    // Potions common, gold next, keys occasionally as random floor spawns.
+    const type = roll < 0.68 ? "potion" : roll < 0.92 ? "gold" : keyTypeForDepth(z, rng);
     const id = `i|${z}|${cx},${cy}|${i}`;
     const amount = type === "gold" ? randInt(rng, 4, 22) + clamp(z, 0, 30) : 1;
     // Small chance this item is actually a chest (locked or unlocked)
@@ -749,23 +788,25 @@ function chunkBaseSpawns(worldSeed, chunk) {
       let keyType = null;
       if (locked) {
         // choose a key type for this locked chest
-        keyType = z <= 4 ? "key_red" : z <= 10 ? (rng() < 0.6 ? "key_blue" : "key_red") : (rng() < 0.55 ? "key_green" : "key_blue");
-        // try to place a key nearby the chest within radius 6
-        const maxR = 6;
-        for (let attempt = 0; attempt < 12; attempt++) {
-          const dx = randInt(rng, -maxR, maxR);
-          const dy = randInt(rng, -maxR, maxR);
-          const kx = clamp(c.x + dx, 1, CHUNK - 2);
-          const ky = clamp(c.y + dy, 1, CHUNK - 2);
-          if (kx === c.x && ky === c.y) continue;
-          items.push({ id: `key_near_inline|${z}|${cx},${cy}|${i}|${attempt}`, type: keyType, amount: 1, lx: kx, ly: ky });
-          break;
+        keyType = keyTypeForDepth(z, rng);
+        // Place chest key only on open, reachable tiles.
+        const near = findOpenCellNear(c.x, c.y, CHUNK);
+        if (near) {
+          pushItem({ id: `key_near_inline|${z}|${cx},${cy}|${i}`, type: keyType, amount: 1, lx: near.x, ly: near.y });
         }
       }
       // push the chest as a chest entity but include locked/keyType metadata
-      items.push({ id: `chest_inline|${z}|${cx},${cy}|${i}`, type: "chest", amount: 1, lx: c.x, ly: c.y, locked: locked, keyType });
+      pushItem({ id: `chest_inline|${z}|${cx},${cy}|${i}`, type: "chest", amount: 1, lx: c.x, ly: c.y, locked: locked, keyType });
     } else {
-      items.push({ id, type, amount, lx: c.x, ly: c.y });
+      let lx = c.x;
+      let ly = c.y;
+      if (type.startsWith("key_") && !isOpenCell(lx, ly)) {
+        const near = findOpenCellNear(c.x, c.y, CHUNK);
+        if (!near) continue;
+        lx = near.x;
+        ly = near.y;
+      }
+      pushItem({ id, type, amount, lx, ly });
     }
   }
 
@@ -773,12 +814,12 @@ function chunkBaseSpawns(worldSeed, chunk) {
   if (rng() < clamp(0.35 + z * 0.02, 0.35, 0.65)) {
     const c = cells[monsterCount + itemCount] ?? cells[cells.length - 1];
     if (c) {
-      items.push({ id: `chest_extra|${z}|${cx},${cy}`, type: "chest", amount: 1, lx: c.x, ly: c.y });
+      pushItem({ id: `chest_extra|${z}|${cx},${cy}`, type: "chest", amount: 1, lx: c.x, ly: c.y });
     }
   }
 
   if (specials?.treasure) {
-    items.push({
+    pushItem({
       id: `chest|${z}|${cx},${cy}`,
       type: "chest",
       amount: 1,
@@ -787,7 +828,7 @@ function chunkBaseSpawns(worldSeed, chunk) {
     });
   }
   if (specials?.shrine) {
-    items.push({
+    pushItem({
       id: `shrine|${z}|${cx},${cy}`,
       type: "shrine",
       amount: 1,
