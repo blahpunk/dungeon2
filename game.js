@@ -1,9 +1,11 @@
 // Infinite Dungeon Roguelike (Explore-Generated, Chunked, Multi-depth)
-// v4.2
-// - Balance: fewer monsters, more chests + potions to reduce early deaths
-// - Fix: reduce "locked door in the middle of a room" by stricter door placement heuristics
-// - Loot: chests now reliably give gear + potions (occasional keys)
-// - Safety: top-level error handler shows problems in log
+// v4.4
+// - Balance: slightly more monsters than v4.2 (kept from v4.3)
+// - Key/Lock pairing FIX: when you acquire a colored key, convert an EXISTING nearby
+//   "normal" doorway (+) into a matching locked door (R/B/G), not too close, and only
+//   if the player hasn't navigated through that doorway tile yet.
+//   Door candidates are filtered to prefer room<->corridor doorways.
+//   (No more spawning a locked door in open space.)
 
 // ---------- Config ----------
 const CHUNK = 32;
@@ -325,8 +327,6 @@ function placeInternalDoors(grid, rng, z) {
     return c;
   };
 
-  // Heuristic: avoid putting doors/locks in "wide open" spaces.
-  // We only place a door if at least one side of the doorway looks corridor-ish (has walls nearby).
   const corridorishSideOk_NS = (x, y) => {
     const nWalls = wallNeighbors4(x, y - 1);
     const sWalls = wallNeighbors4(x, y + 1);
@@ -524,7 +524,6 @@ function generateChunk(seedStr, z, cx, cy) {
   if (rooms.length >= 3 && rng() < 0.6)
     carveCorridor(grid, rng, rooms[0].cx, rooms[0].cy, rooms[rooms.length - 1].cx, rooms[rooms.length - 1].cy);
 
-  // ensure at least one open edge
   const openCount = ["N","S","W","E"].reduce((n, d) => n + (edges[d].open ? 1 : 0), 0);
   if (openCount === 0) edges.E.open = true;
 
@@ -572,13 +571,9 @@ function generateChunk(seedStr, z, cx, cy) {
 
   openDoorAt("N"); openDoorAt("S"); openDoorAt("W"); openDoorAt("E");
 
-  // stitch islands
   ensureChunkConnectivity(grid, rng);
-
-  // doors + locks
   placeInternalDoors(grid, rng, z);
 
-  // Stairs down (forced in start chunk)
   const hasStairs = (z === 0 && cx === 0 && cy === 0) || rng() < 0.14;
   if (hasStairs) {
     let best = null, bestD = Infinity;
@@ -725,7 +720,6 @@ function monsterTableForDepth(z) {
 }
 
 function samplePassableCellsInChunk(grid, rng, count) {
-  // IMPORTANT: do NOT include DOOR_CLOSED in spawns. Otherwise monsters/items can spawn on blocked tiles.
   const passable = (t) => t === FLOOR || t === DOOR_OPEN || t === STAIRS_DOWN || t === STAIRS_UP;
   const cells = [];
   for (let y = 2; y < CHUNK - 2; y++)
@@ -743,16 +737,15 @@ function chunkBaseSpawns(worldSeed, chunk) {
   const { z, cx, cy, grid, specials } = chunk;
   const rng = makeRng(`${worldSeed}|spawns|z${z}|${cx},${cy}`);
 
-  // --- Fewer monsters, more loot ---
   const depthBoost = clamp(z, 0, 80);
 
-  // Monsters: reduced base + slower depth ramp
+  // ---- Monsters: slightly more than v4.2 ----
   const monsterCount = clamp(
-    randInt(rng, 1, 3) +
-      (rng() < depthBoost / 140 ? 1 : 0) +
-      (rng() < depthBoost / 240 ? 1 : 0),
-    1,
-    7
+    randInt(rng, 2, 4) +
+      (rng() < depthBoost / 150 ? 1 : 0) +
+      (rng() < depthBoost / 260 ? 1 : 0),
+    2,
+    8
   );
 
   // Ground items: slightly more, and more potions
@@ -765,7 +758,7 @@ function chunkBaseSpawns(worldSeed, chunk) {
     (rng() < chestChance * 0.70 ? 1 : 0) +
     (rng() < chestChance * 0.35 ? 1 : 0);
 
-  if (z <= 2 && rng() < 0.55) chestCount += 1; // early help
+  if (z <= 2 && rng() < 0.55) chestCount += 1;
   chestCount = clamp(chestCount, 0, 4);
 
   // Scan locks so we can place keys near them
@@ -1042,6 +1035,202 @@ function renderInventory(state) {
   });
 }
 
+// ---------- Key/Lock pairing helpers ----------
+function keyTypeToLockTile(keyType) {
+  if (keyType === "key_red") return LOCK_RED;
+  if (keyType === "key_blue") return LOCK_BLUE;
+  if (keyType === "key_green") return LOCK_GREEN;
+  return null;
+}
+
+function hasLockNearby(state, lockTile, radius = 22) {
+  const p = state.player;
+  for (let dy = -radius; dy <= radius; dy++) {
+    for (let dx = -radius; dx <= radius; dx++) {
+      const wx = p.x + dx, wy = p.y + dy;
+      if (dx * dx + dy * dy > radius * radius) continue;
+      if (state.world.getTile(wx, wy, p.z) === lockTile) return true;
+    }
+  }
+  return false;
+}
+
+function spawnDynamicItem(state, type, amount, x, y, z) {
+  const id = `dyn|${type}|${z}|${x},${y}|${Date.now()}|${Math.floor(Math.random() * 1e9)}`;
+  const ent = { id, origin: "dynamic", kind: "item", type, amount, x, y, z };
+  state.dynamic.set(id, ent);
+  state.entities.set(id, ent);
+}
+
+function isFloorishTile(t) {
+  return t === FLOOR || t === DOOR_OPEN || t === STAIRS_DOWN || t === STAIRS_UP;
+}
+function doorIsOnChunkBorder(x, y) {
+  const lx = ((x % CHUNK) + CHUNK) % CHUNK;
+  const ly = ((y % CHUNK) + CHUNK) % CHUNK;
+  return lx === 0 || ly === 0 || lx === CHUNK - 1 || ly === CHUNK - 1;
+}
+function floorNeighborCount(state, x, y, z) {
+  let c = 0;
+  if (isFloorishTile(state.world.getTile(x, y - 1, z))) c++;
+  if (isFloorishTile(state.world.getTile(x, y + 1, z))) c++;
+  if (isFloorishTile(state.world.getTile(x - 1, y, z))) c++;
+  if (isFloorishTile(state.world.getTile(x + 1, y, z))) c++;
+  return c;
+}
+
+/**
+ * Returns detailed info if (x,y) is a suitable existing "normal" door to convert.
+ * strict=true prefers room<->corridor doorways (one side open-ish, one side tight).
+ */
+function classifyClosedDoorCandidate(state, x, y, z, strict) {
+  const t = state.world.getTile(x, y, z);
+  if (t !== DOOR_CLOSED) return null;
+
+  // Never touch chunk-border doors (those are chunk connectors and look weird as "paired locks")
+  if (doorIsOnChunkBorder(x, y)) return null;
+
+  // Must not be a door you've actually walked through already
+  if (state.doorCrossed?.has(keyXYZ(x, y, z))) return null;
+
+  const n = state.world.getTile(x, y - 1, z);
+  const s = state.world.getTile(x, y + 1, z);
+  const w = state.world.getTile(x - 1, y, z);
+  const e = state.world.getTile(x + 1, y, z);
+
+  const ns = isFloorishTile(n) && isFloorishTile(s) && w === WALL && e === WALL;
+  const we = isFloorishTile(w) && isFloorishTile(e) && n === WALL && s === WALL;
+  if (!ns && !we) return null;
+
+  const sideA = ns ? { x, y: y - 1, dir: { dx: 0, dy: -1 } } : { x: x - 1, y, dir: { dx: -1, dy: 0 } };
+  const sideB = ns ? { x, y: y + 1, dir: { dx: 0, dy: +1 } } : { x: x + 1, y, dir: { dx: +1, dy: 0 } };
+
+  if (!strict) return { x, y, sideA, sideB, roomySide: null };
+
+  const aOpen = floorNeighborCount(state, sideA.x, sideA.y, z);
+  const bOpen = floorNeighborCount(state, sideB.x, sideB.y, z);
+
+  const aRoomy = aOpen >= 3;
+  const bRoomy = bOpen >= 3;
+  const aCorr = aOpen <= 2;
+  const bCorr = bOpen <= 2;
+
+  // Prefer a doorway between a room-ish area and a corridor-ish area.
+  if (!((aRoomy && bCorr) || (bRoomy && aCorr))) return null;
+
+  const roomySide = aRoomy ? sideA : sideB;
+  return { x, y, sideA, sideB, roomySide };
+}
+
+// Record door tiles the player has actually traversed.
+function noteDoorTraversal(state, oldX, oldY, newX, newY, z) {
+  state.doorCrossed ??= new Set();
+  const tNew = state.world.getTile(newX, newY, z);
+  const tOld = state.world.getTile(oldX, oldY, z);
+
+  if (tNew === DOOR_OPEN) state.doorCrossed.add(keyXYZ(newX, newY, z));
+  if (tOld === DOOR_OPEN) state.doorCrossed.add(keyXYZ(oldX, oldY, z));
+}
+
+// Convert an existing untraversed closed door (+) into a matching locked door (R/B/G),
+// not too close to the player, and preferably a room<->corridor doorway.
+function ensureMatchingLockNearby(state, keyType) {
+  const lockTile = keyTypeToLockTile(keyType);
+  if (!lockTile) return;
+
+  state.keyLockSpawn = state.keyLockSpawn ?? { lastTurn: { R: -9999, B: -9999, G: -9999 } };
+  const nowTurn = state.turn ?? 0;
+  if ((nowTurn - (state.keyLockSpawn.lastTurn[lockTile] ?? -9999)) < 35) return;
+
+  const p = state.player;
+  const z = p.z;
+
+  // If a matching lock already exists nearby, do nothing.
+  // (We use a slightly larger radius than the ring search.)
+  if (hasLockNearby(state, lockTile, 48)) return;
+
+  // Search in an annulus: not too close (minR), but "nearby" (maxR).
+  const minR = 14;
+  const maxRStrict = 46;
+  const maxRFallback = 70;
+
+  const targetR = 28; // prefer around this distance
+  const candidates = [];
+
+  function scan(strict, maxR) {
+    const maxR2 = maxR * maxR;
+    const minR2 = minR * minR;
+
+    for (let dy = -maxR; dy <= maxR; dy++) {
+      for (let dx = -maxR; dx <= maxR; dx++) {
+        const d2 = dx * dx + dy * dy;
+        if (d2 > maxR2 || d2 < minR2) continue;
+
+        const wx = p.x + dx;
+        const wy = p.y + dy;
+
+        const info = classifyClosedDoorCandidate(state, wx, wy, z, strict);
+        if (!info) continue;
+
+        // Score: prefer around targetR, slight preference for unseen doors
+        const d = Math.sqrt(d2);
+        const band = (d - targetR) * (d - targetR);
+
+        const seenPenalty = state.seen?.has(keyXYZ(wx, wy, z)) ? 2.5 : 0.0;
+        const score = band + seenPenalty;
+
+        candidates.push({ score, d2, info });
+      }
+    }
+  }
+
+  // Prefer strict room<->corridor doors first, within a moderate radius.
+  scan(true, maxRStrict);
+
+  // If none, widen radius and allow any normal closed door geometry (still not border, still untraversed).
+  if (!candidates.length) scan(false, maxRFallback);
+
+  if (!candidates.length) return;
+
+  candidates.sort((a, b) => a.score - b.score || a.d2 - b.d2);
+
+  const chosen = candidates[0].info;
+
+  // Convert this existing door (+) into the matching lock tile.
+  state.world.setTile(chosen.x, chosen.y, z, lockTile);
+
+  // Drop a chest just beyond the locked door, preferably on the roomy side.
+  // (This avoids "open space lock" while making the key immediately meaningful.)
+  try {
+    const roomy = chosen.roomySide ?? chosen.sideA; // fallback
+    const dir = { dx: roomy.dir.dx, dy: roomy.dir.dy };
+
+    // Place 2 tiles into the room side if possible, else 1.
+    const oneX = chosen.x + dir.dx * 1;
+    const oneY = chosen.y + dir.dy * 1;
+    const twoX = chosen.x + dir.dx * 2;
+    const twoY = chosen.y + dir.dy * 2;
+
+    const spot2Ok = isFloorishTile(state.world.getTile(twoX, twoY, z));
+    const spot1Ok = isFloorishTile(state.world.getTile(oneX, oneY, z));
+    const sx = spot2Ok ? twoX : (spot1Ok ? oneX : null);
+    const sy = spot2Ok ? twoY : (spot1Ok ? oneY : null);
+
+    if (sx != null && !(sx === p.x && sy === p.y)) {
+      const occ = buildOccupancy(state);
+      const k = keyXYZ(sx, sy, z);
+      if (!occ.items.get(k) && !occ.monsters.get(k)) {
+        spawnDynamicItem(state, "chest", 1, sx, sy, z);
+        if (Math.random() < 0.45) spawnDynamicItem(state, "potion", 1, sx, sy + 1, z);
+      }
+    }
+  } catch { /* no-op */ }
+
+  state.keyLockSpawn.lastTurn[lockTile] = nowTurn;
+  const nm = lockTile === LOCK_RED ? "red" : lockTile === LOCK_BLUE ? "blue" : "green";
+  pushLog(state, `Somewhere nearby, a ${nm} lock clicks into place...`);
+}
+
 function makeNewGame(seedStr = randomSeedString()) {
   const world = new World(seedStr);
 
@@ -1071,6 +1260,8 @@ function makeNewGame(seedStr = randomSeedString()) {
     inv: [],
     dynamic: new Map(),
     turn: 0,
+    keyLockSpawn: { lastTurn: { R: -9999, B: -9999, G: -9999 } },
+    doorCrossed: new Set(), // NEW: tracks door tiles you have traversed
   };
 
   world.ensureChunksAround(0, 0, 0, VIEW_RADIUS + 2);
@@ -1400,46 +1591,33 @@ function tryCloseAdjacentDoor(state) {
   return false;
 }
 
-// ---------- Dynamic drops ----------
-function spawnDynamicItem(state, type, amount, x, y, z) {
-  const id = `dyn|${type}|${z}|${x},${y}|${Date.now()}|${Math.floor(Math.random() * 1e9)}`;
-  const ent = { id, origin: "dynamic", kind: "item", type, amount, x, y, z };
-  state.dynamic.set(id, ent);
-  state.entities.set(id, ent);
-}
-
 // Chests now = real loot: gear + potions (sometimes keys)
 function dropEquipmentFromChest(state) {
   const z = state.player.z;
 
-  // Roll 1: strongly biased toward gear
   const rollGear = Math.random();
   if (rollGear < 0.60) {
-    // weapon
     const w = z <= 4 ? "weapon_dagger" : z <= 9 ? "weapon_sword" : "weapon_axe";
     invAdd(state, w, 1);
     pushLog(state, `Found a ${ITEM_TYPES[w].name}!`);
   } else if (rollGear < 0.92) {
-    // armor
     const a = z <= 4 ? "armor_leather" : z <= 9 ? "armor_chain" : "armor_plate";
     invAdd(state, a, 1);
     pushLog(state, `Found ${ITEM_TYPES[a].name}!`);
   } else {
-    // rare: key (depth-appropriate-ish)
     const key =
       z <= 4 ? "key_red" :
       z <= 10 ? (Math.random() < 0.65 ? "key_blue" : "key_red") :
       (Math.random() < 0.60 ? "key_green" : "key_blue");
     invAdd(state, key, 1);
     pushLog(state, `Found a ${ITEM_TYPES[key].name}!`);
+    ensureMatchingLockNearby(state, key);
   }
 
-  // Roll 2: ALWAYS at least one potion (sometimes 2)
   const potions = Math.random() < 0.35 ? 2 : 1;
   invAdd(state, "potion", potions);
   pushLog(state, `Found ${potions} Potion${potions === 1 ? "" : "s"}!`);
 
-  // Small extra chance for a bonus potion on deeper floors
   if (z >= 6 && Math.random() < 0.20) {
     invAdd(state, "potion", 1);
     pushLog(state, "Found a bonus Potion!");
@@ -1494,6 +1672,8 @@ function playerMoveOrAttack(state, dx, dy) {
   const p = state.player;
   if (p.dead) return false;
 
+  const oldX = p.x, oldY = p.y;
+
   const nx = p.x + dx;
   const ny = p.y + dy;
   const nz = p.z;
@@ -1505,7 +1685,10 @@ function playerMoveOrAttack(state, dx, dy) {
   if (tileIsLocked(tile)) {
     const handled = tryUnlockDoor(state, nx, ny, nz);
     if (!handled) return false;
-    if (state.world.isPassable(nx, ny, nz)) { p.x = nx; p.y = ny; }
+    if (state.world.isPassable(nx, ny, nz)) {
+      p.x = nx; p.y = ny;
+      noteDoorTraversal(state, oldX, oldY, p.x, p.y, nz);
+    }
     return true;
   }
 
@@ -1528,6 +1711,7 @@ function playerMoveOrAttack(state, dx, dy) {
   }
 
   p.x = nx; p.y = ny;
+  noteDoorTraversal(state, oldX, oldY, p.x, p.y, nz);
   return true;
 }
 
@@ -1557,6 +1741,7 @@ function pickup(state) {
   } else if (it.type === "key_red" || it.type === "key_blue" || it.type === "key_green") {
     invAdd(state, it.type, it.amount ?? 1);
     pushLog(state, `Picked up a ${ITEM_TYPES[it.type].name}.`);
+    ensureMatchingLockNearby(state, it.type);
   } else if (it.type === "weapon_dagger" || it.type === "weapon_sword" || it.type === "weapon_axe"
           || it.type === "armor_leather" || it.type === "armor_chain" || it.type === "armor_plate") {
     invAdd(state, it.type, 1);
@@ -1879,7 +2064,7 @@ function monstersTurn(state) {
       continue;
     }
 
-    const wanderChance = m.awake ? 0.55 : 0.18; // slightly reduced wandering pressure
+    const wanderChance = m.awake ? 0.55 : 0.18;
     if (Math.random() < wanderChance) {
       const dirs = [[1,0],[-1,0],[0,1],[0,-1]].sort(() => Math.random() - 0.5);
       for (const [dx, dy] of dirs) {
@@ -2041,6 +2226,7 @@ function exportSave(state) {
   const entOv = Array.from(state.entityOverrides.entries());
   const seen = Array.from(state.seen).slice(0, 60000);
   const dynamic = Array.from(state.dynamic.values());
+  const doorCrossed = Array.from(state.doorCrossed ?? []).slice(0, 60000);
 
   const payload = {
     v: 4,
@@ -2056,6 +2242,8 @@ function exportSave(state) {
     dynamic,
     log: state.log.slice(-110),
     turn: state.turn,
+    keyLockSpawn: state.keyLockSpawn ?? { lastTurn: { R: -9999, B: -9999, G: -9999 } },
+    doorCrossed, // NEW
   };
 
   return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
@@ -2079,6 +2267,7 @@ function migrateV3toV4(payload) {
   payload.player.equip = payload.player.equip ?? { weapon: null, armor: null };
   payload.player.effects = payload.player.effects ?? [];
   payload.turn = payload.turn ?? 0;
+  payload.doorCrossed = payload.doorCrossed ?? [];
   return payload;
 }
 
@@ -2106,6 +2295,8 @@ function importSave(saveStr) {
       inv: payload.inv ?? [],
       dynamic: new Map(),
       turn: payload.turn ?? 0,
+      keyLockSpawn: payload.keyLockSpawn ?? { lastTurn: { R: -9999, B: -9999, G: -9999 } },
+      doorCrossed: new Set(payload.doorCrossed ?? []),
     };
 
     fogEnabled = !!payload.fog;
