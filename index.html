@@ -1,3 +1,4 @@
+<!-- index.html -->
 <!doctype html>
 <html lang="en">
   <head>
@@ -52,45 +53,56 @@
         min-height: 0;
         display: grid;
         grid-template-columns: 1fr 380px;
-        gap: 14px;
-        padding: 14px;
+        gap: 12px;
+        padding: 10px;
         overflow: hidden;
         align-items: stretch;
       }
 
-      /* LEFT COLUMN: canvas (scroll if needed) + fixed-height log */
+      /* LEFT COLUMN: dungeon view (maximized) + fixed-height log */
       #leftCol {
         min-height: 0;
         display: grid;
         grid-template-rows: 1fr auto;
-        gap: 12px;
+        gap: 10px;
         overflow: hidden;
       }
 
+      /* Scroll only if window too short; otherwise canvas is auto-scaled to fill */
       #mainCanvasWrap {
         min-height: 0;
-        overflow: auto; /* if window too small, scroll HERE, not shrink canvas */
-        display: grid;
-        place-items: start;
-      }
-
-      canvas#c {
+        overflow: auto;
         border: 1px solid #27314a;
         border-radius: 12px;
         background: #070a10;
-        image-rendering: pixelated;
-        display: block;
+        padding: 8px;
+      }
 
-        /* IMPORTANT: do not force shrink */
+      canvas#c {
+        display: block;
+        image-rendering: pixelated;
+
+        /* IMPORTANT: never shrink due to CSS */
         max-width: none;
         max-height: none;
+
+        /* Center when it fits; when it overflows, margins collapse to 0 */
+        margin: 0 auto;
+
+        /* Size is controlled by game.js (auto-fit scale) */
+        width: auto;
+        height: auto;
       }
 
       #logPanel {
         border: 1px solid #27314a;
         border-radius: 12px;
         background: #0a0f1b;
-        padding: 12px;
+        padding: 10px;
+      }
+      #logTitle {
+        font-weight: 700;
+        margin: 0 0 6px 0;
       }
 
       #log {
@@ -107,19 +119,18 @@
         white-space: pre-wrap;
       }
 
-      /* RIGHT COLUMN: minimap top + panels below */
+      /* RIGHT COLUMN */
       #rightCol {
         min-height: 0;
         display: flex;
         flex-direction: column;
-        gap: 12px;
+        gap: 10px;
         overflow: hidden;
       }
 
-      /* minimap should not shrink */
       #miniWrap {
         border: 1px solid #24304a;
-        border-radius: 10px;
+        border-radius: 12px;
         padding: 10px;
         background: #070b12;
         flex: 0 0 auto;
@@ -133,13 +144,19 @@
       #miniHeader b { font-size: 14px; }
       #miniHeader span { opacity: 0.75; font-size: 12px; }
 
+      /* IMPORTANT: do NOT stretch the minimap; keep it at native canvas pixel size */
       canvas#mini {
+        display: block;
+        margin: 0 auto;
         border: 1px solid #1f2a40;
         border-radius: 10px;
-        width: 100%;
-        height: auto;
         image-rendering: pixelated;
         background: #05070c;
+
+        width: auto;
+        height: auto;
+        max-width: none;
+        max-height: none;
       }
 
       .legend {
@@ -156,7 +173,7 @@
 
       .panel {
         border: 1px solid #24304a;
-        border-radius: 10px;
+        border-radius: 12px;
         padding: 10px;
         background: #070b12;
         flex: 0 0 auto;
@@ -178,14 +195,14 @@
       .invItem button { padding: 5px 8px; border-radius: 10px; }
       .muted { opacity: 0.75; }
 
-      /* panels below minimap: if right column is short, allow it to scroll internally */
+      /* Panels below minimap: scroll internally if needed */
       #rightScroll {
         min-height: 0;
         overflow: auto;
         display: flex;
         flex-direction: column;
-        gap: 12px;
-        padding-right: 2px; /* tiny gutter so scrollbar doesn't clip borders */
+        gap: 10px;
+        padding-right: 2px;
       }
 
       #help {
@@ -234,7 +251,7 @@
         </div>
 
         <div id="logPanel">
-          <div style="font-weight:700;margin-bottom:6px;">Message log</div>
+          <div id="logTitle">Message log</div>
           <div id="log"></div>
         </div>
       </div>
