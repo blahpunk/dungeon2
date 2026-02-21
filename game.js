@@ -6,7 +6,7 @@
 //     Prompts explain exactly what each action does.
 
 const CHUNK = 32;
-const TILE = 16;
+const TILE = 32;
 const VIEW_RADIUS = 14;
 
 const MINI_SCALE = 3;
@@ -31,6 +31,8 @@ const XP_DAMAGE_PER_LEGACY_DAMAGE = 6;
 const XP_KILL_BONUS_PER_MONSTER_XP = 12;
 const STAIRS_DOWN_SPAWN_CHANCE = 0.32;
 const STAIRS_UP_SPAWN_CHANCE = 0.26;
+const EDGE_SHADE_PX = Math.max(2, Math.floor(TILE * 0.12));
+const CORNER_CHAMFER_PX = Math.max(3, Math.floor(TILE * 0.22));
 
 // ---------- DOM ----------
 const canvas = document.getElementById("c");
@@ -2121,6 +2123,71 @@ function draw(state) {
 
       ctx.fillStyle = fill;
       ctx.fillRect(sx * TILE, sy * TILE, TILE, TILE);
+
+      // Subtle bevel shading at wall/floor boundaries to reduce blocky edges at higher tile sizes.
+      const wallish = (tt) => tt === WALL || tt === DOOR_CLOSED || tt === LOCK_RED || tt === LOCK_BLUE || tt === LOCK_GREEN || tt === "*";
+      const openish = (tt) => tt === FLOOR || tt === DOOR_OPEN || tt === STAIRS_DOWN || tt === STAIRS_UP;
+      const n = world.getTile(wx, wy - 1, player.z);
+      const s = world.getTile(wx, wy + 1, player.z);
+      const w = world.getTile(wx - 1, wy, player.z);
+      const e = world.getTile(wx + 1, wy, player.z);
+      const nw = world.getTile(wx - 1, wy - 1, player.z);
+      const ne = world.getTile(wx + 1, wy - 1, player.z);
+      const sw = world.getTile(wx - 1, wy + 1, player.z);
+      const se = world.getTile(wx + 1, wy + 1, player.z);
+      const edgeAlpha = isVisible ? 0.22 : 0.12;
+      const px = sx * TILE, py = sy * TILE;
+      const chamfer = CORNER_CHAMFER_PX;
+
+      if (openish(t)) {
+        ctx.fillStyle = `rgba(0,0,0,${edgeAlpha})`;
+        if (wallish(n)) ctx.fillRect(px, py, TILE, EDGE_SHADE_PX);
+        if (wallish(s)) ctx.fillRect(px, py + TILE - EDGE_SHADE_PX, TILE, EDGE_SHADE_PX);
+        if (wallish(w)) ctx.fillRect(px, py, EDGE_SHADE_PX, TILE);
+        if (wallish(e)) ctx.fillRect(px + TILE - EDGE_SHADE_PX, py, EDGE_SHADE_PX, TILE);
+      } else if (wallish(t)) {
+        ctx.fillStyle = `rgba(255,255,255,${isVisible ? 0.08 : 0.04})`;
+        if (openish(n)) ctx.fillRect(px, py, TILE, EDGE_SHADE_PX);
+        if (openish(w)) ctx.fillRect(px, py, EDGE_SHADE_PX, TILE);
+
+        // Autotile-like corner chamfers for true walls to break square "stair-steps".
+        if (t === WALL) {
+          ctx.fillStyle = isVisible ? theme.floorV : theme.floorNV;
+
+          if (openish(n) && openish(w) && openish(nw)) {
+            ctx.beginPath();
+            ctx.moveTo(px, py);
+            ctx.lineTo(px + chamfer, py);
+            ctx.lineTo(px, py + chamfer);
+            ctx.closePath();
+            ctx.fill();
+          }
+          if (openish(n) && openish(e) && openish(ne)) {
+            ctx.beginPath();
+            ctx.moveTo(px + TILE, py);
+            ctx.lineTo(px + TILE - chamfer, py);
+            ctx.lineTo(px + TILE, py + chamfer);
+            ctx.closePath();
+            ctx.fill();
+          }
+          if (openish(s) && openish(w) && openish(sw)) {
+            ctx.beginPath();
+            ctx.moveTo(px, py + TILE);
+            ctx.lineTo(px + chamfer, py + TILE);
+            ctx.lineTo(px, py + TILE - chamfer);
+            ctx.closePath();
+            ctx.fill();
+          }
+          if (openish(s) && openish(e) && openish(se)) {
+            ctx.beginPath();
+            ctx.moveTo(px + TILE, py + TILE);
+            ctx.lineTo(px + TILE - chamfer, py + TILE);
+            ctx.lineTo(px + TILE, py + TILE - chamfer);
+            ctx.closePath();
+            ctx.fill();
+          }
+        }
+      }
 
       const tg = tileGlyph(t);
       if (tg) {
