@@ -21,6 +21,8 @@ const LOCK_BLUE = "B";
 const LOCK_GREEN = "G";
 const STAIRS_DOWN = ">";
 const STAIRS_UP = "<";
+const SURFACE_LEVEL = -1;
+const SURFACE_HALF_SIZE = 22;
 
 const SAVE_KEY = "infinite_dungeon_roguelike_save_v4";
 const XP_SCALE = 100;
@@ -449,7 +451,35 @@ function tryAddShrineRoom(seedStr, rng, z, grid, anchors) {
 }
 
 // ---------- Chunk generation ----------
+function generateSurfaceChunk(z, cx, cy) {
+  const grid = newGrid(WALL);
+  for (let ly = 0; ly < CHUNK; ly++) {
+    for (let lx = 0; lx < CHUNK; lx++) {
+      const wx = cx * CHUNK + lx;
+      const wy = cy * CHUNK + ly;
+      const ax = Math.abs(wx);
+      const ay = Math.abs(wy);
+      if (ax < SURFACE_HALF_SIZE && ay < SURFACE_HALF_SIZE) grid[ly][lx] = FLOOR;
+      else if (
+        (ax === SURFACE_HALF_SIZE && ay <= SURFACE_HALF_SIZE) ||
+        (ay === SURFACE_HALF_SIZE && ax <= SURFACE_HALF_SIZE)
+      ) grid[ly][lx] = WALL;
+
+      // Surface return ladder is fixed at the center.
+      if (wx === 0 && wy === 0) grid[ly][lx] = STAIRS_DOWN;
+    }
+  }
+  return {
+    z, cx, cy, grid,
+    specials: {},
+    explore: { rooms: 0, corridors: 0 },
+    surface: true,
+  };
+}
+
 function generateChunk(seedStr, z, cx, cy) {
+  if (z === SURFACE_LEVEL) return generateSurfaceChunk(z, cx, cy);
+
   const rng = makeRng(`${seedStr}|chunk|z${z}|${cx},${cy}`);
   const grid = newGrid(WALL);
 
@@ -751,6 +781,7 @@ function samplePassableCellsInChunk(grid, rng, count) {
 
 function chunkBaseSpawns(worldSeed, chunk) {
   const { z, cx, cy, grid, specials } = chunk;
+  if (z === SURFACE_LEVEL || chunk.surface) return { monsters: [], items: [] };
   const rng = makeRng(`${worldSeed}|spawns|z${z}|${cx},${cy}`);
   const isOpenCell = (x, y) => {
     const t = grid[y]?.[x];
@@ -1011,6 +1042,24 @@ function renderInventory(state) {
   });
 }
 
+function placeInitialSurfaceStairs(state) {
+  const p = state.player;
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+
+  for (const [dx, dy] of dirs) {
+    const x = p.x + dx, y = p.y + dy, z = p.z;
+    const t = state.world.getTile(x, y, z);
+    if (t === FLOOR || t === DOOR_OPEN || t === DOOR_CLOSED) {
+      state.world.setTile(x, y, z, STAIRS_UP);
+      return;
+    }
+  }
+
+  const fx = p.x + 1, fy = p.y;
+  state.world.setTile(fx, fy, p.z, FLOOR);
+  state.world.setTile(fx, fy, p.z, STAIRS_UP);
+}
+
 function makeNewGame(seedStr = randomSeedString()) {
   const world = new World(seedStr);
 
@@ -1057,6 +1106,7 @@ function makeNewGame(seedStr = randomSeedString()) {
     if (d < bestD) { bestD = d; best = { x, y }; }
   }
   if (best) { player.x = best.x; player.y = best.y; }
+  placeInitialSurfaceStairs(state);
 
   recalcDerivedStats(state);
   pushLog(state, "You enter the dungeon...");
@@ -1776,13 +1826,23 @@ function goToLevel(state, newZ, direction) {
   const p = state.player;
   if (p.dead) return;
 
-  state.world.ensureChunksAround(p.x, p.y, newZ, VIEW_RADIUS + 2);
+  if (newZ === SURFACE_LEVEL) {
+    // Surface uses a fixed central ladder location.
+    state.world.ensureChunksAround(0, 0, newZ, VIEW_RADIUS + 2);
+  } else {
+    state.world.ensureChunksAround(p.x, p.y, newZ, VIEW_RADIUS + 2);
+  }
 
   if (direction === "down") {
     carveLandingAndConnect(state, p.x, p.y, newZ, STAIRS_UP);
     pushLog(state, `You descend to depth ${newZ}.`);
   } else {
-    carveLandingAndConnect(state, p.x, p.y, newZ, STAIRS_DOWN);
+    if (newZ === SURFACE_LEVEL) {
+      p.x = 0; p.y = 0;
+      state.world.setTile(0, 0, newZ, STAIRS_DOWN);
+    } else {
+      carveLandingAndConnect(state, p.x, p.y, newZ, STAIRS_DOWN);
+    }
     pushLog(state, `You ascend to depth ${newZ}.`);
   }
 
@@ -1808,7 +1868,7 @@ function tryUseStairs(state, dir) {
     return true;
   } else {
     if (here !== STAIRS_UP) { pushLog(state, "No stairs up here."); return false; }
-    if (p.z <= 0) { pushLog(state, "You can't go up any further."); return false; }
+    if (p.z <= SURFACE_LEVEL) { pushLog(state, "You can't go up any further."); return false; }
     goToLevel(state, p.z - 1, "up");
     return true;
   }
