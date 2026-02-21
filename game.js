@@ -2225,21 +2225,12 @@ try {
       const tc = document.getElementById('touchControls');
       if (!tc) return;
 
-      const dpadBtns = tc.querySelectorAll('.dpad-btn');
-      dpadBtns.forEach((btn) => {
-        const dx = Number(btn.dataset.dx || 0);
-        const dy = Number(btn.dataset.dy || 0);
-        const handler = (ev) => {
-          ev.preventDefault();
-          if (!game) return;
-          if (dx === 0 && dy === 0) takeTurn(game, waitTurn(game));
-          else takeTurn(game, playerMoveOrAttack(game, dx, dy));
-        };
-        btn.addEventListener('touchstart', handler, { passive: false });
-        btn.addEventListener('click', handler);
-      });
+      const handleDpad = (dx, dy) => {
+        if (!game) return;
+        if (dx === 0 && dy === 0) takeTurn(game, waitTurn(game));
+        else takeTurn(game, playerMoveOrAttack(game, dx, dy));
+      };
 
-      const actionBtns = tc.querySelectorAll('.action-btn');
       const handleAction = (action) => {
         if (!game) return;
         if (action === 'interact') takeTurn(game, interactContext(game));
@@ -2249,12 +2240,63 @@ try {
         else if (action === 'inventory') renderInventory(game);
       };
 
-      actionBtns.forEach((btn) => {
-        const action = btn.dataset.action;
-        const handler = (ev) => { ev.preventDefault(); handleAction(action); };
-        btn.addEventListener('touchstart', handler, { passive: false });
-        btn.addEventListener('click', handler);
-      });
+      // Pointer-based input handling with tap-vs-hold semantics for reliable touch
+      const activePointers = new Map();
+      const initialDelay = 300; // ms before repeating starts
+      const repeatInterval = 120; // ms between repeats
+
+      tc.addEventListener('pointerdown', (ev) => {
+        try {
+          const btn = ev.target.closest && ev.target.closest('.dpad-btn, .action-btn');
+          if (!btn) return;
+          ev.preventDefault();
+          try { btn.setPointerCapture && btn.setPointerCapture(ev.pointerId); } catch {}
+
+          if (btn.classList.contains('dpad-btn')) {
+            const dx = Number(btn.dataset.dx || 0);
+            const dy = Number(btn.dataset.dy || 0);
+            const entry = { btn, type: 'dpad', start: Date.now(), dx, dy, firedRepeat: false };
+            entry.initialTimeout = setTimeout(() => {
+              // initial delay elapsed: fire first move and start repeating
+              try { handleDpad(dx, dy); } catch {}
+              entry.firedRepeat = true;
+              entry.repeatInterval = setInterval(() => { try { handleDpad(dx, dy); } catch {} }, repeatInterval);
+            }, initialDelay);
+            activePointers.set(ev.pointerId, entry);
+          } else if (btn.classList.contains('action-btn')) {
+            const action = btn.dataset.action;
+            const entry = { btn, type: 'action', start: Date.now(), action };
+            activePointers.set(ev.pointerId, entry);
+          }
+        } catch (e) { /* ignore */ }
+      }, { passive: false });
+
+      const finishPointer = (ev, invokeOnTap = true) => {
+        try {
+          const entry = activePointers.get(ev.pointerId);
+          if (!entry) return;
+          try { entry.btn.releasePointerCapture && entry.btn.releasePointerCapture(ev.pointerId); } catch {}
+          // clear timers
+          if (entry.initialTimeout) { clearTimeout(entry.initialTimeout); entry.initialTimeout = null; }
+          if (entry.repeatInterval) { clearInterval(entry.repeatInterval); entry.repeatInterval = null; }
+
+          const elapsed = Date.now() - (entry.start || 0);
+          if (entry.type === 'dpad') {
+            // If the initial delay did not elapse, treat as tap on release
+            if (!entry.firedRepeat && elapsed < initialDelay && invokeOnTap) {
+              try { handleDpad(entry.dx, entry.dy); } catch {}
+            }
+          } else if (entry.type === 'action') {
+            if (invokeOnTap) try { handleAction(entry.action); } catch {}
+          }
+          activePointers.delete(ev.pointerId);
+        } catch (e) { /* ignore */ }
+      };
+
+      tc.addEventListener('pointerup', (ev) => { ev.preventDefault(); finishPointer(ev, true); }, { passive: false });
+      tc.addEventListener('pointercancel', (ev) => { finishPointer(ev, false); }, { passive: false });
+      // Prevent synthetic clicks from causing double-invoke
+      tc.addEventListener('click', (ev) => { ev.preventDefault(); ev.stopPropagation(); }, true);
     } catch (e) { /* ignore */ }
   }
 
