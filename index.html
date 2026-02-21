@@ -86,16 +86,26 @@
         image-rendering: pixelated;
         margin: 0;
 
-        /* Default behavior: make the canvas fill the container height while
-           preserving a 1:1 aspect ratio (square). This avoids horizontal
-           squishing by sizing width based on height. */
-        width: auto;
-        height: 100%;
+        /* Default: fill available width and keep square aspect (landscape/wide view). */
+        width: 100%;
+        height: auto;
         aspect-ratio: 1 / 1;
         max-width: 100%;
         max-height: 100%;
         box-sizing: border-box;
         object-fit: contain;
+      }
+
+      /* When the viewport is taller than it is wide (portrait), make the
+         main view use the full available height and compute width from
+         the 1:1 aspect so the canvas remains a full-size square. */
+      @media (max-aspect-ratio: 1/1), (orientation: portrait) {
+        canvas#c {
+          width: auto;
+          height: 100%;
+        }
+        /* Ensure the canvas container uses the full row height */
+        #mainCanvasWrap { align-items: stretch; }
       }
 
       #logPanel {
