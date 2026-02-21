@@ -820,7 +820,9 @@ function renderLog(state) {
 }
 
 function isStackable(type) {
-  return type === "potion" || type === "key_red" || type === "key_blue" || type === "key_green";
+  return type === "potion" ||
+    type === "key_red" || type === "key_blue" || type === "key_green" ||
+    type.startsWith("weapon_") || type.startsWith("armor_");
 }
 function invAdd(state, type, amount = 1) {
   if (isStackable(type)) {
@@ -909,6 +911,11 @@ function renderInventory(state) {
     const clickHandler = (e) => { e.stopPropagation(); invoke(); };
     btn.addEventListener('click', clickHandler);
     btn.addEventListener('touchstart', (e) => { e.stopPropagation(); e.preventDefault(); invoke(); }, { passive: false });
+    btn.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      takeTurn(state, dropInventoryIndex(state, idx));
+    });
 
     invListEl.appendChild(btn);
   });
@@ -1487,8 +1494,12 @@ function useInventoryIndex(state, idx) {
     p.hp = clamp(p.hp + heal, 0, p.maxHp);
     pushLog(state, `You drink a potion. (+${p.hp - before} HP)`);
 
-    it.amount -= 1;
-    if (it.amount <= 0) state.inv.splice(idx, 1);
+    if (isStackable(it.type)) {
+      it.amount -= 1;
+      if (it.amount <= 0) state.inv.splice(idx, 1);
+    } else {
+      state.inv.splice(idx, 1);
+    }
 
     renderInventory(state);
     return;
@@ -1502,7 +1513,12 @@ function useInventoryIndex(state, idx) {
   if (it.type.startsWith("weapon_")) {
     const prev = p.equip.weapon;
     p.equip.weapon = it.type;
-    state.inv.splice(idx, 1);
+    if (isStackable(it.type)) {
+      it.amount -= 1;
+      if (it.amount <= 0) state.inv.splice(idx, 1);
+    } else {
+      state.inv.splice(idx, 1);
+    }
     if (prev) invAdd(state, prev, 1);
     pushLog(state, `Equipped ${ITEM_TYPES[p.equip.weapon].name}.`);
     recalcDerivedStats(state);
@@ -1514,7 +1530,12 @@ function useInventoryIndex(state, idx) {
   if (it.type.startsWith("armor_")) {
     const prev = p.equip.armor;
     p.equip.armor = it.type;
-    state.inv.splice(idx, 1);
+    if (isStackable(it.type)) {
+      it.amount -= 1;
+      if (it.amount <= 0) state.inv.splice(idx, 1);
+    } else {
+      state.inv.splice(idx, 1);
+    }
     if (prev) invAdd(state, prev, 1);
     pushLog(state, `Equipped ${ITEM_TYPES[p.equip.armor].name}.`);
     recalcDerivedStats(state);
@@ -1524,6 +1545,33 @@ function useInventoryIndex(state, idx) {
   }
 
   pushLog(state, "You can't use that right now.");
+}
+
+function dropInventoryIndex(state, idx) {
+  const p = state.player;
+  if (p.dead) return false;
+
+  const it = state.inv[idx];
+  if (!it) {
+    pushLog(state, "No item in that inventory slot.");
+    return false;
+  }
+
+  const dropType = it.type;
+  let dropAmount = 1;
+
+  if (isStackable(dropType)) {
+    it.amount -= 1;
+    if (it.amount <= 0) state.inv.splice(idx, 1);
+  } else {
+    dropAmount = Math.max(1, it.amount ?? 1);
+    state.inv.splice(idx, 1);
+  }
+
+  spawnDynamicItem(state, dropType, dropAmount, p.x, p.y, p.z);
+  pushLog(state, `Dropped ${ITEM_TYPES[dropType]?.name ?? dropType}.`);
+  renderInventory(state);
+  return true;
 }
 
 // ---------- Shrine interaction ----------
@@ -1999,6 +2047,14 @@ function confirmHardReset() {
 // ---------- Input ----------
 function onKey(state, e) {
   const k = e.key.toLowerCase();
+  const digitShiftDrop = /^Digit[1-9]$/.test(e.code) && e.shiftKey;
+
+  if (digitShiftDrop) {
+    e.preventDefault();
+    const idx = Number(e.code.replace("Digit", "")) - 1;
+    takeTurn(state, dropInventoryIndex(state, idx));
+    return;
+  }
 
   if (e.key >= "1" && e.key <= "9") {
     e.preventDefault();
