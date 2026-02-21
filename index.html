@@ -247,36 +247,58 @@
       /* Mobile touch controls (visible on small screens) */
       #touchControls { display: none; }
       @media (max-width: 760px) {
+        /* Fixed to bottom-right: actions at left, D-pad at right */
         #touchControls {
           display: flex;
           position: fixed;
-          left: 12px;
           right: 12px;
+          left: auto;
           bottom: 12px;
-          gap: 12px;
-          align-items: flex-end;
+          flex-direction: row-reverse;
+          gap: 10px;
+          align-items: center;
           pointer-events: auto;
           z-index: 1200;
+          max-width: calc(100vw - 24px);
+          flex-wrap: nowrap;
         }
 
-        #dpad { display: flex; flex-direction: column; gap: 6px; }
-        #dpad > div { display: flex; gap: 6px; }
+        /* Ensure the canvas/log have space so controls stay visible */
+        #mainCanvasWrap { padding-bottom: 140px; }
+        #log { height: calc(6 * 1.35em + 12px); }
+
+        /* D-pad: up centered above the middle row (left/center/right), down centered below */
+        #dpad { display: flex; flex-direction: column; gap: 8px; align-items: center; }
+        #dpad > div { display: flex; gap: 8px; justify-content: center; }
+
+        /* Stack action buttons vertically so they sit to the left of the D-pad */
+        #actions { display: flex; flex-direction: column; gap: 8px; align-items: center; }
+
+        /* Table layout for touch controls: left = 3x3 D-pad, right = context buttons */
+        #touchTable { display: block; }
+        #touchTable table { border-collapse: collapse; }
+        #touchTable td { vertical-align: middle; padding: 0 6px; }
+        .control-grid { border-collapse: collapse; }
+        .control-grid td { padding: 6px; }
+        .context-buttons { display: flex; flex-direction: column; gap: 8px; }
+
         .dpad-btn, .action-btn {
-          background: rgba(24,32,50,0.9);
+          background: rgba(24,32,50,0.98);
           color: #e6e6e6;
-          border: 1px solid rgba(255,255,255,0.04);
-          border-radius: 10px;
-          min-width: 56px;
-          min-height: 48px;
+          border: 1px solid rgba(255,255,255,0.05);
+          border-radius: 12px;
+          width: 64px;
+          height: 64px;
           font-size: 18px;
           display: inline-flex;
           align-items: center;
           justify-content: center;
           touch-action: manipulation;
+          padding: 6px;
         }
 
-        .action-btn { min-width: 48px; padding: 8px; }
-        .dpad-btn.center { min-width: 44px; min-height: 44px; border-radius: 50%; }
+        .action-btn { min-width: 72px; padding: 8px 10px; }
+        .dpad-btn.center { width: 56px; height: 56px; border-radius: 50%; }
       }
     </style>
   </head>
@@ -356,24 +378,39 @@
     </div>
 
     <script type="module" src="./game.js"></script>
-    <!-- Mobile touch controls -->
+    <!-- Mobile touch controls (table: left = 3x3 directional, right = context buttons) -->
     <div id="touchControls" aria-hidden="false">
-      <div id="dpad" aria-label="D-pad">
-        <button class="dpad-btn" data-dx="0" data-dy="-1" title="Up">↑</button>
-        <div>
-          <button class="dpad-btn" data-dx="-1" data-dy="0" title="Left">←</button>
-          <button class="dpad-btn center" data-dx="0" data-dy="0" title="Wait">•</button>
-          <button class="dpad-btn" data-dx="1" data-dy="0" title="Right">→</button>
-        </div>
-        <button class="dpad-btn" data-dx="0" data-dy="1" title="Down">↓</button>
-      </div>
-
-      <div id="actions" aria-label="Actions">
-        <button class="action-btn" data-action="interact" title="Interact (E)">E</button>
-        <button class="action-btn" data-action="pickup" title="Pick up (G)">G</button>
-        <button class="action-btn" data-action="wait" title="Wait">•</button>
-        <button class="action-btn" data-action="minimap" title="Toggle minimap (M)">M</button>
-        <button class="action-btn" data-action="inventory" title="Inventory (I)">I</button>
+      <div id="touchTable">
+        <table role="presentation">
+          <tr>
+            <td>
+              <table class="control-grid" role="presentation">
+                <tr>
+                  <td></td>
+                  <td><button class="dpad-btn" data-dx="0" data-dy="-1" title="Move Up">↑</button></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td><button class="dpad-btn" data-dx="-1" data-dy="0" title="Move Left">←</button></td>
+                  <td><button class="dpad-btn center" data-dx="0" data-dy="0" title="Wait">•</button></td>
+                  <td><button class="dpad-btn" data-dx="1" data-dy="0" title="Move Right">→</button></td>
+                </tr>
+                <tr>
+                  <td></td>
+                  <td><button class="dpad-btn" data-dx="0" data-dy="1" title="Move Down">↓</button></td>
+                  <td></td>
+                </tr>
+              </table>
+            </td>
+            <td>
+              <div class="context-buttons" id="actions" aria-label="Actions">
+                <button class="action-btn" data-action="interact" title="Use">Use</button>
+                <button class="action-btn" data-action="pickup" title="Take">Take</button>
+                <button class="action-btn" data-action="wait" title="Wait">Wait</button>
+              </div>
+            </td>
+          </tr>
+        </table>
       </div>
     </div>
   </body>
