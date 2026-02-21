@@ -1672,10 +1672,32 @@ function bfsNextStep(state, start, goal, maxNodes = 600, maxDist = 18) {
 }
 
 function monsterHitPlayer(state, monster, baseDmgLo, baseDmgHi, verb = "hits") {
-  const raw = baseDmgLo + Math.floor(Math.random() * (baseDmgHi - baseDmgLo + 1));
+  const nm = MONSTER_TYPES[monster.type]?.name ?? monster.type;
+
+  // Rat-specific: rats should usually miss; hit chance increases with depth.
+  if (monster.type === 'rat') {
+    const baseChance = 0.35; // rats usually miss
+    const depth = clamp(monster.z ?? state.player.z, 0, 60);
+    const hitChance = Math.min(0.85, baseChance + depth * 0.03);
+    if (Math.random() >= hitChance) {
+      pushLog(state, `The ${nm} misses you.`);
+      return;
+    }
+  }
+
+  // Base damage roll
+  let raw = baseDmgLo + Math.floor(Math.random() * (baseDmgHi - baseDmgLo + 1));
+
+  // Progressive difficulty: small damage boost by depth for all monsters
+  const depth = clamp(monster.z ?? state.player.z, 0, 60);
+  const depthBonus = Math.floor(depth / 4); // +1 every 4 levels
+  raw += depthBonus;
+
+  // Depth 0 rats must never hit harder than 1
+  if (monster.type === 'rat' && depth === 0) raw = Math.min(raw, 1);
+
   const dmg = reduceIncomingDamage(state, raw);
   state.player.hp -= dmg;
-  const nm = MONSTER_TYPES[monster.type]?.name ?? monster.type;
   pushLog(state, `The ${nm} ${verb} you for ${dmg}.`);
   if (state.player.hp <= 0) killPlayer(state);
 }
@@ -1759,7 +1781,8 @@ function monstersTurn(state) {
 }
 
 // ---------- Rendering (glyph overlays) ----------
-const GLYPH_FONT = `bold ${Math.floor(TILE * 0.78)}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace`;
+// Glyph font: slightly larger than tile size so characters/icons overlap cells a bit
+const GLYPH_FONT = `bold ${Math.floor(TILE * 1.12)}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace`;
 function drawGlyph(ctx2d, sx, sy, glyph, color = "#e6e6e6") {
   const cx = sx * TILE + TILE / 2;
   const cy = sy * TILE + TILE / 2 + 0.5;
@@ -1856,7 +1879,8 @@ function draw(state) {
             ent?.type?.startsWith("weapon_") ? "#c2b280" :
             ent?.type?.startsWith("armor_") ? "#a0a7b8" :
             "#f4d35e";
-          ctx.fillRect(sx * TILE + 6, sy * TILE + 6, TILE - 12, TILE - 12);
+          // slightly larger item block
+          ctx.fillRect(sx * TILE + 4, sy * TILE + 4, TILE - 8, TILE - 8);
 
           const gi = itemGlyph(ent?.type);
           if (gi) drawGlyph(ctx, sx, sy, gi.g, gi.c);
@@ -1865,7 +1889,8 @@ function draw(state) {
         if (mk) {
           const ent = state.entities.get(mk);
           ctx.fillStyle = ent?.type === "archer" ? "#ffb36b" : "#ff6b6b";
-          ctx.fillRect(sx * TILE + 4, sy * TILE + 4, TILE - 8, TILE - 8);
+          // slightly larger monster block
+          ctx.fillRect(sx * TILE + 3, sy * TILE + 3, TILE - 6, TILE - 6);
 
           const gm = monsterGlyph(ent?.type);
           if (gm) drawGlyph(ctx, sx, sy, gm.g, gm.c);
@@ -1875,7 +1900,8 @@ function draw(state) {
   }
 
   ctx.fillStyle = "#7ce3ff";
-  ctx.fillRect(VIEW_RADIUS * TILE + 3, VIEW_RADIUS * TILE + 3, TILE - 6, TILE - 6);
+  // slightly larger player marker
+  ctx.fillRect(VIEW_RADIUS * TILE + 2, VIEW_RADIUS * TILE + 2, TILE - 4, TILE - 4);
 
   const { cx, cy, lx, ly } = splitWorldToChunk(player.x, player.y);
   metaEl.innerHTML =
