@@ -68,10 +68,13 @@
         overflow: hidden;
       }
 
-      /* Scroll only if window too short; otherwise canvas is auto-scaled to fill */
+      /* Main canvas container: center a square canvas that fills the available height */
       #mainCanvasWrap {
         min-height: 0;
-        overflow: auto;
+        display: flex;
+        align-items: center;   /* center vertically */
+        justify-content: center; /* center horizontally */
+        overflow: visible; /* avoid internal scrollbars */
         border: 1px solid #27314a;
         border-radius: 12px;
         background: #070a10;
@@ -81,17 +84,18 @@
       canvas#c {
         display: block;
         image-rendering: pixelated;
+        margin: 0;
 
-        /* IMPORTANT: never shrink due to CSS */
-        max-width: none;
-        max-height: none;
-
-        /* Center when it fits; when it overflows, margins collapse to 0 */
-        margin: 0 auto;
-
-        /* Size is controlled by game.js (auto-fit scale) */
+        /* Default behavior: make the canvas fill the container height while
+           preserving a 1:1 aspect ratio (square). This avoids horizontal
+           squishing by sizing width based on height. */
         width: auto;
-        height: auto;
+        height: 100%;
+        aspect-ratio: 1 / 1;
+        max-width: 100%;
+        max-height: 100%;
+        box-sizing: border-box;
+        object-fit: contain;
       }
 
       #logPanel {
@@ -172,6 +176,7 @@
         width: 100%;
         height: auto;
         margin: 0 auto; /* center when there is extra space */
+      }
 
       .legend {
         margin-top: 8px;
