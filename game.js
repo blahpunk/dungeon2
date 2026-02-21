@@ -23,6 +23,7 @@ const STAIRS_DOWN = ">";
 const STAIRS_UP = "<";
 
 const SAVE_KEY = "infinite_dungeon_roguelike_save_v4";
+const XP_SCALE = 100;
 
 // ---------- DOM ----------
 const canvas = document.getElementById("c");
@@ -98,6 +99,7 @@ function splitWorldToChunk(wx, wy) {
   return { cx, cy, lx, ly };
 }
 function keyXYZ(x, y, z) { return `${z}|${x},${y}`; }
+function keyZCXCY(z, cx, cy) { return `${z}|${cx},${cy}`; }
 function keyXY(x, y) { return `${x},${y}`; }
 function inBounds(x, y) { return x >= 0 && y >= 0 && x < CHUNK && y < CHUNK; }
 
@@ -279,6 +281,7 @@ function floodConnected(grid, sx, sy) {
 }
 function ensureChunkConnectivity(grid, rng) {
   const passable = (t) => t === FLOOR || t === DOOR_OPEN || t === STAIRS_DOWN || t === STAIRS_UP;
+  let carved = 0;
   let start = null;
   for (let y = 1; y < CHUNK - 1 && !start; y++)
     for (let x = 1; x < CHUNK - 1; x++)
@@ -302,7 +305,9 @@ function ensureChunkConnectivity(grid, rng) {
     }
     if (!best) break;
     carveCorridor(grid, rng, island.x, island.y, best.x, best.y);
+    carved += 1;
   }
+  return carved;
 }
 
 function pickLockColor(rng, z) {
@@ -451,6 +456,7 @@ function generateChunk(seedStr, z, cx, cy) {
   };
 
   const rooms = [];
+  let corridorCount = 0;
   const roomCount = randInt(rng, 2, 4);
 
   for (let i = 0; i < roomCount; i++) {
@@ -495,10 +501,14 @@ function generateChunk(seedStr, z, cx, cy) {
     }
   }
 
-  for (let i = 1; i < rooms.length; i++)
+  for (let i = 1; i < rooms.length; i++) {
     carveCorridor(grid, rng, rooms[i - 1].cx, rooms[i - 1].cy, rooms[i].cx, rooms[i].cy);
-  if (rooms.length >= 3 && rng() < 0.6)
+    corridorCount += 1;
+  }
+  if (rooms.length >= 3 && rng() < 0.6) {
     carveCorridor(grid, rng, rooms[0].cx, rooms[0].cy, rooms[rooms.length - 1].cx, rooms[rooms.length - 1].cy);
+    corridorCount += 1;
+  }
 
   const openCount = ["N","S","W","E"].reduce((n, d) => n + (edges[d].open ? 1 : 0), 0);
   if (openCount === 0) edges.E.open = true;
@@ -524,30 +534,34 @@ function generateChunk(seedStr, z, cx, cy) {
       grid[1][x] = FLOOR;
       const a = nearestAnchor(x, 1);
       carveCorridor(grid, rng, x, 1, a.cx, a.cy);
+      corridorCount += 1;
     } else if (dir === "S") {
       const x = info.pos;
       grid[CHUNK - 1][x] = DOOR_CLOSED;
       grid[CHUNK - 2][x] = FLOOR;
       const a = nearestAnchor(x, CHUNK - 2);
       carveCorridor(grid, rng, x, CHUNK - 2, a.cx, a.cy);
+      corridorCount += 1;
     } else if (dir === "W") {
       const y = info.pos;
       grid[y][0] = DOOR_CLOSED;
       grid[y][1] = FLOOR;
       const a = nearestAnchor(1, y);
       carveCorridor(grid, rng, 1, y, a.cx, a.cy);
+      corridorCount += 1;
     } else if (dir === "E") {
       const y = info.pos;
       grid[y][CHUNK - 1] = DOOR_CLOSED;
       grid[y][CHUNK - 2] = FLOOR;
       const a = nearestAnchor(CHUNK - 2, y);
       carveCorridor(grid, rng, CHUNK - 2, y, a.cx, a.cy);
+      corridorCount += 1;
     }
   }
 
   openDoorAt("N"); openDoorAt("S"); openDoorAt("W"); openDoorAt("E");
 
-  ensureChunkConnectivity(grid, rng);
+  corridorCount += ensureChunkConnectivity(grid, rng) ?? 0;
   placeInternalDoors(grid, rng, z);
 
   const hasStairs = (z === 0 && cx === 0 && cy === 0) || rng() < 0.14;
@@ -568,8 +582,14 @@ function generateChunk(seedStr, z, cx, cy) {
     ...tryAddTreasureRoom(seedStr, rng, z, grid, anchors),
     ...tryAddShrineRoom(seedStr, rng, z, grid, anchors),
   };
+  const specialRoomCount = (specials.treasure ? 1 : 0) + (specials.shrine ? 1 : 0);
+  const specialCorridorCount = specialRoomCount; // each special room uses one connector corridor
+  const explore = {
+    rooms: roomCount + specialRoomCount,
+    corridors: corridorCount + specialCorridorCount,
+  };
 
-  return { z, cx, cy, grid, specials };
+  return { z, cx, cy, grid, specials, explore };
 }
 
 // ---------- World ----------
@@ -888,7 +908,21 @@ function invCount(state, type) {
 }
 
 function xpToNext(level) {
-  return 8 + level * 6;
+  return (8 + level * 6) * XP_SCALE;
+}
+
+function xpFromDamage(dmg) {
+  // 0.35 "legacy XP" per point of damage, kept as integer via XP_SCALE.
+  return Math.max(0, Math.floor(dmg * 35));
+}
+
+function xpKillBonus(monsterType) {
+  const base = MONSTER_TYPES[monsterType]?.xp ?? 2;
+  return base * 55;
+}
+
+function xpExplorationBonus(roomCount, corridorCount) {
+  return Math.max(0, roomCount * 25 + corridorCount * 15);
 }
 
 function recalcDerivedStats(state) {
@@ -992,6 +1026,7 @@ function makeNewGame(seedStr = randomSeedString()) {
     dynamic: new Map(),
     turn: 0,
     visitedDoors: new Set(),
+    exploredChunks: new Set(),
   };
 
   world.ensureChunksAround(0, 0, 0, VIEW_RADIUS + 2);
@@ -1011,6 +1046,7 @@ function makeNewGame(seedStr = randomSeedString()) {
   recalcDerivedStats(state);
   pushLog(state, "You enter the dungeon...");
   hydrateNearby(state);
+  maybeGrantExplorationXP(state);
   renderInventory(state);
   renderEquipment(state);
   renderEffects(state);
@@ -1233,6 +1269,7 @@ function applyReveal(state, radius = 28) {
 // ---------- Leveling ----------
 function grantXP(state, amount) {
   const p = state.player;
+  if (!Number.isFinite(amount) || amount <= 0) return;
   p.xp += amount;
   pushLog(state, `+${amount} XP`);
 
@@ -1247,6 +1284,27 @@ function grantXP(state, amount) {
 
   recalcDerivedStats(state);
   renderEquipment(state);
+}
+
+function maybeGrantExplorationXP(state) {
+  const p = state.player;
+  const { cx, cy } = splitWorldToChunk(p.x, p.y);
+  const key = keyZCXCY(p.z, cx, cy);
+  if (state.exploredChunks?.has(key)) return;
+
+  state.exploredChunks?.add(key);
+
+  const chunk = state.world.getChunk(p.z, cx, cy);
+  const rooms = Math.max(0, chunk.explore?.rooms ?? 0);
+  const corridors = Math.max(0, chunk.explore?.corridors ?? 0);
+  const xp = xpExplorationBonus(rooms, corridors);
+  if (xp <= 0) return;
+
+  grantXP(state, xp);
+  pushLog(
+    state,
+    `Exploration: +${xp} XP (${rooms} room${rooms === 1 ? "" : "s"}, ${corridors} corridor${corridors === 1 ? "" : "s"}).`
+  );
 }
 
 // ---------- Damage helpers ----------
@@ -1361,6 +1419,7 @@ function dropEquipmentFromChest(state) {
 
 // ---------- Player actions ----------
 function playerAttack(state, monster) {
+  const hpBefore = monster.hp;
   const dmg = playerAttackDamage(state);
   monster.hp -= dmg;
   monster.awake = true;
@@ -1370,12 +1429,12 @@ function playerAttack(state, monster) {
   }
 
   pushLog(state, `You hit the ${MONSTER_TYPES[monster.type]?.name ?? monster.type} for ${dmg}.`);
+  grantXP(state, xpFromDamage(Math.max(0, Math.min(dmg, hpBefore))));
 
   if (monster.hp <= 0) {
     pushLog(state, `The ${MONSTER_TYPES[monster.type]?.name ?? monster.type} dies.`);
 
-    const xp = MONSTER_TYPES[monster.type]?.xp ?? 2;
-    grantXP(state, xp);
+    grantXP(state, xpKillBonus(monster.type));
 
     if (monster.origin === "base") {
       state.removedIds.add(monster.id);
@@ -2021,7 +2080,7 @@ function draw(state) {
   metaEl.innerHTML =
     `<div class="meta-seed">seed: ${world.seedStr} &nbsp; depth: ${player.z} &nbsp; theme: ${theme.name}</div>` +
     `<div class="meta-pos">pos: (${player.x}, ${player.y}) chunk: (${cx}, ${cy}) local: (${lx}, ${ly})</div>` +
-    `<div class="meta-row"><div class="meta-col"><span class="label">XP</span><span class="val xp">${player.xp}</span></div><div class="meta-col"><span class="label">Gold</span><span class="val gold">${player.gold}</span></div></div>` +
+    `<div class="meta-row"><div class="meta-col"><span class="label">XP</span><span class="val xp">${player.xp}/${xpToNext(player.level)}</span></div><div class="meta-col"><span class="label">Gold</span><span class="val gold">${player.gold}</span></div></div>` +
     `<div class="meta-row"><div class="meta-col"><span class="label">ATK</span><span class="val atk">${Math.max(1, player.atkLo + player.atkBonus)}-${Math.max(1, player.atkHi + player.atkBonus)}</span></div><div class="meta-col"><span class="label">DEF</span><span class="val def">+${player.defBonus}</span></div></div>` +
     `<div class="meta-row"><div class="meta-col"><span class="label">HP</span><span class="val hp">${player.hp}/${player.maxHp}</span></div><div class="meta-col"><span class="label">LVL</span><span class="val lvl">${player.level}</span></div></div>`;
 
@@ -2056,6 +2115,7 @@ function applyEffectsAfterPlayerAction(state) {
 function takeTurn(state, didSpendTurn) {
   if (!didSpendTurn) return;
   state.turn += 1;
+  maybeGrantExplorationXP(state);
 
   applyEffectsAfterPlayerAction(state);
   monstersTurn(state);
@@ -2205,9 +2265,10 @@ function exportSave(state) {
   const seen = Array.from(state.seen).slice(0, 60000);
   const dynamic = Array.from(state.dynamic.values());
   const visitedDoors = Array.from(state.visitedDoors ?? []);
+  const exploredChunks = Array.from(state.exploredChunks ?? []);
 
   const payload = {
-    v: 4,
+    v: 5,
     seed: state.world.seedStr,
     fog: fogEnabled,
     minimap: minimapEnabled,
@@ -2221,6 +2282,7 @@ function exportSave(state) {
     log: state.log.slice(-110),
     turn: state.turn,
     visitedDoors,
+    exploredChunks,
   };
 
   return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
@@ -2247,6 +2309,30 @@ function migrateV3toV4(payload) {
   return payload;
 }
 
+function deriveExploredChunksFromSeen(seenEntries) {
+  const chunks = new Set();
+  for (const s of seenEntries ?? []) {
+    const [zPart, xyPart] = String(s).split("|");
+    if (!xyPart) continue;
+    const [xPart, yPart] = xyPart.split(",");
+    const z = Number(zPart);
+    const x = Number(xPart);
+    const y = Number(yPart);
+    if (!Number.isFinite(z) || !Number.isFinite(x) || !Number.isFinite(y)) continue;
+    const { cx, cy } = splitWorldToChunk(x, y);
+    chunks.add(keyZCXCY(z, cx, cy));
+  }
+  return chunks;
+}
+
+function migrateV4toV5(payload) {
+  payload.player = payload.player ?? {};
+  payload.player.xp = Math.max(0, Math.floor((payload.player.xp ?? 0) * XP_SCALE));
+  payload.exploredChunks = Array.from(deriveExploredChunksFromSeen(payload.seen ?? []));
+  payload.v = 5;
+  return payload;
+}
+
 function importSave(saveStr) {
   try {
     const json = decodeURIComponent(escape(atob(saveStr)));
@@ -2254,7 +2340,8 @@ function importSave(saveStr) {
     if (!payload) return null;
 
     if (payload.v === 3) payload = migrateV3toV4(payload);
-    if (payload.v !== 4) return null;
+    if (payload.v === 4) payload = migrateV4toV5(payload);
+    if (payload.v !== 5) return null;
 
     const tileOverrides = new Map(payload.tileOv ?? []);
     const world = new World(payload.seed, tileOverrides);
@@ -2272,6 +2359,7 @@ function importSave(saveStr) {
       dynamic: new Map(),
       turn: payload.turn ?? 0,
       visitedDoors: new Set(payload.visitedDoors ?? []),
+      exploredChunks: new Set(payload.exploredChunks ?? []),
     };
 
     fogEnabled = !!payload.fog;
@@ -2281,7 +2369,7 @@ function importSave(saveStr) {
 
     state.player.dead = !!state.player.dead;
     state.player.level = state.player.level ?? 1;
-    state.player.xp = state.player.xp ?? 0;
+    state.player.xp = Math.max(0, Math.floor(state.player.xp ?? 0));
     state.player.equip = state.player.equip ?? { weapon: null, armor: null };
     state.player.effects = state.player.effects ?? [];
     state.player.maxHp = state.player.maxHp ?? 18;
