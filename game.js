@@ -27,6 +27,8 @@ const XP_SCALE = 100;
 const COMBAT_SCALE = 100;
 const XP_DAMAGE_PER_LEGACY_DAMAGE = 6;
 const XP_KILL_BONUS_PER_MONSTER_XP = 12;
+const STAIRS_DOWN_SPAWN_CHANCE = 0.32;
+const STAIRS_UP_SPAWN_CHANCE = 0.26;
 
 // ---------- DOM ----------
 const canvas = document.getElementById("c");
@@ -567,8 +569,7 @@ function generateChunk(seedStr, z, cx, cy) {
   corridorCount += ensureChunkConnectivity(grid, rng) ?? 0;
   placeInternalDoors(grid, rng, z);
 
-  const hasStairs = (z === 0 && cx === 0 && cy === 0) || rng() < 0.14;
-  if (hasStairs) {
+  function placeRandomStair(centerTile) {
     let best = null, bestD = Infinity;
     const tx = Math.floor(CHUNK / 2), ty = Math.floor(CHUNK / 2);
     for (let y = 2; y < CHUNK - 2; y++) for (let x = 2; x < CHUNK - 2; x++) {
@@ -578,7 +579,18 @@ function generateChunk(seedStr, z, cx, cy) {
       const d = dx * dx + dy * dy;
       if (d < bestD) { bestD = d; best = { x, y }; }
     }
-    if (best) grid[best.y][best.x] = STAIRS_DOWN;
+    if (!best) return false;
+    grid[best.y][best.x] = centerTile;
+    return true;
+  }
+
+  const hasDownStairs = (z === 0 && cx === 0 && cy === 0) || rng() < STAIRS_DOWN_SPAWN_CHANCE;
+  if (hasDownStairs) {
+    placeRandomStair(STAIRS_DOWN);
+  }
+  const hasUpStairs = z > 0 && rng() < STAIRS_UP_SPAWN_CHANCE;
+  if (hasUpStairs) {
+    placeRandomStair(STAIRS_UP);
   }
 
   const specials = {
