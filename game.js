@@ -24,6 +24,9 @@ const STAIRS_UP = "<";
 
 const SAVE_KEY = "infinite_dungeon_roguelike_save_v4";
 const XP_SCALE = 100;
+const COMBAT_SCALE = 100;
+const XP_DAMAGE_PER_LEGACY_DAMAGE = 6;
+const XP_KILL_BONUS_PER_MONSTER_XP = 12;
 
 // ---------- DOM ----------
 const canvas = document.getElementById("c");
@@ -661,11 +664,11 @@ function hasLineOfSight(world, z, x0, y0, x1, y1) {
 
 // ---------- Monsters / Items ----------
 const MONSTER_TYPES = {
-  rat:      { name: "Rat",      maxHp: 6,  atkLo: 1, atkHi: 3, xp: 2,  glyph: "r" },
-  goblin:   { name: "Goblin",   maxHp: 10, atkLo: 2, atkHi: 4, xp: 4,  glyph: "g" },
-  slime:    { name: "Slime",    maxHp: 14, atkLo: 2, atkHi: 5, xp: 5,  glyph: "s" },
-  skeleton: { name: "Skeleton", maxHp: 18, atkLo: 3, atkHi: 6, xp: 8,  glyph: "k" },
-  archer:   { name: "Archer",   maxHp: 12, atkLo: 2, atkHi: 4, xp: 7,  glyph: "a", range: 6, cdTurns: 2 },
+  rat:      { name: "Rat",      maxHp: 600,  atkLo: 100, atkHi: 300, xp: 2,  glyph: "r" },
+  goblin:   { name: "Goblin",   maxHp: 1000, atkLo: 200, atkHi: 400, xp: 4,  glyph: "g" },
+  slime:    { name: "Slime",    maxHp: 1400, atkLo: 200, atkHi: 500, xp: 5,  glyph: "s" },
+  skeleton: { name: "Skeleton", maxHp: 1800, atkLo: 300, atkHi: 600, xp: 8,  glyph: "k" },
+  archer:   { name: "Archer",   maxHp: 1200, atkLo: 200, atkHi: 400, xp: 7,  glyph: "a", range: 6, cdTurns: 2 },
 };
 
 const ITEM_TYPES = {
@@ -689,14 +692,14 @@ const ITEM_TYPES = {
 };
 
 const WEAPONS = {
-  weapon_dagger: { atkBonus: 1 },
-  weapon_sword:  { atkBonus: 2 },
-  weapon_axe:    { atkBonus: 3 },
+  weapon_dagger: { atkBonus: 100 },
+  weapon_sword:  { atkBonus: 200 },
+  weapon_axe:    { atkBonus: 300 },
 };
 const ARMORS = {
-  armor_leather: { defBonus: 1 },
-  armor_chain:   { defBonus: 2 },
-  armor_plate:   { defBonus: 3 },
+  armor_leather: { defBonus: 100 },
+  armor_chain:   { defBonus: 200 },
+  armor_plate:   { defBonus: 300 },
 };
 
 function weightedChoice(rng, entries) {
@@ -912,13 +915,13 @@ function xpToNext(level) {
 }
 
 function xpFromDamage(dmg) {
-  // 0.35 "legacy XP" per point of damage, kept as integer via XP_SCALE.
-  return Math.max(0, Math.floor(dmg * 35));
+  // Normalize combat-scaled damage back to legacy-sized units, then award a modest amount per point.
+  return Math.max(0, Math.floor((dmg / COMBAT_SCALE) * XP_DAMAGE_PER_LEGACY_DAMAGE));
 }
 
 function xpKillBonus(monsterType) {
   const base = MONSTER_TYPES[monsterType]?.xp ?? 2;
-  return base * 55;
+  return base * XP_KILL_BONUS_PER_MONSTER_XP;
 }
 
 function xpExplorationBonus(roomCount, corridorCount) {
@@ -937,8 +940,8 @@ function recalcDerivedStats(state) {
   p.atkBonus = (weapon?.atkBonus ?? 0) + effAtk;
   p.defBonus = (armor?.defBonus ?? 0);
 
-  p.atkLo = 2 + Math.floor((p.level - 1) / 2);
-  p.atkHi = 5 + Math.floor((p.level - 1) / 2);
+  p.atkLo = 200 + Math.floor((p.level - 1) / 2) * 100;
+  p.atkHi = 500 + Math.floor((p.level - 1) / 2) * 100;
 }
 
 function renderEquipment(state) {
@@ -1004,8 +1007,8 @@ function makeNewGame(seedStr = randomSeedString()) {
     dead: false,
     level: 1,
     xp: 0,
-    hp: 18, maxHp: 18,
-    atkLo: 2, atkHi: 5,
+    hp: 1800, maxHp: 1800,
+    atkLo: 200, atkHi: 500,
     atkBonus: 0,
     defBonus: 0,
     gold: 0,
@@ -1276,7 +1279,7 @@ function grantXP(state, amount) {
   while (p.xp >= xpToNext(p.level)) {
     p.xp -= xpToNext(p.level);
     p.level += 1;
-    const hpGain = 3 + Math.floor(p.level / 3);
+    const hpGain = (3 + Math.floor(p.level / 3)) * COMBAT_SCALE;
     p.maxHp += hpGain;
     p.hp = clamp(p.hp + hpGain, 0, p.maxHp);
     pushLog(state, `*** Level up! You are now level ${p.level}. (+${hpGain} max HP)`);
@@ -1589,7 +1592,7 @@ function useInventoryIndex(state, idx) {
   if (!it) return;
 
   if (it.type === "potion") {
-    const heal = 6 + Math.floor(Math.random() * 7);
+    const heal = (6 + Math.floor(Math.random() * 7)) * COMBAT_SCALE;
     const before = p.hp;
     p.hp = clamp(p.hp + heal, 0, p.maxHp);
     pushLog(state, `You drink a potion. (+${p.hp - before} HP)`);
@@ -1705,14 +1708,14 @@ function interactShrine(state) {
     const curseIdx = p.effects.findIndex(e => e.type === "curse");
     if (curseIdx >= 0) { p.effects.splice(curseIdx, 1); pushLog(state, "A curse is lifted."); }
   } else if (eff.type === "bless") {
-    p.effects.push({ type: "bless", atkDelta: +1, turnsLeft: 80 });
-    pushLog(state, "Blessing: ATK +1 for 80 turns.");
+    p.effects.push({ type: "bless", atkDelta: +100, turnsLeft: 80 });
+    pushLog(state, "Blessing: ATK +100 for 80 turns.");
   } else if (eff.type === "regen") {
-    p.effects.push({ type: "regen", healPerTurn: 1, turnsLeft: 60 });
-    pushLog(state, "Regen: +1 HP per turn for 60 turns.");
+    p.effects.push({ type: "regen", healPerTurn: 100, turnsLeft: 60 });
+    pushLog(state, "Regen: +100 HP per turn for 60 turns.");
   } else if (eff.type === "curse") {
-    p.effects.push({ type: "curse", atkDelta: -1, turnsLeft: 80 });
-    pushLog(state, "Curse: ATK -1 for 80 turns.");
+    p.effects.push({ type: "curse", atkDelta: -100, turnsLeft: 80 });
+    pushLog(state, "Curse: ATK -100 for 80 turns.");
   }
 
   applyReveal(state, 22);
@@ -1876,11 +1879,11 @@ function monsterHitPlayer(state, monster, baseDmgLo, baseDmgHi, verb = "hits") {
 
   // Progressive difficulty: small damage boost by depth for all monsters
   const depth = clamp(monster.z ?? state.player.z, 0, 60);
-  const depthBonus = Math.floor(depth / 4); // +1 every 4 levels
+  const depthBonus = Math.floor(depth / 4) * COMBAT_SCALE; // +100 every 4 levels
   raw += depthBonus;
 
-  // Depth 0 rats must never hit harder than 1
-  if (monster.type === 'rat' && depth === 0) raw = Math.min(raw, 1);
+  // Depth 0 rats must never hit harder than 100
+  if (monster.type === 'rat' && depth === 0) raw = Math.min(raw, 100);
 
   const dmg = reduceIncomingDamage(state, raw);
   state.player.hp -= dmg;
@@ -2268,7 +2271,7 @@ function exportSave(state) {
   const exploredChunks = Array.from(state.exploredChunks ?? []);
 
   const payload = {
-    v: 5,
+    v: 6,
     seed: state.world.seedStr,
     fog: fogEnabled,
     minimap: minimapEnabled,
@@ -2333,6 +2336,32 @@ function migrateV4toV5(payload) {
   return payload;
 }
 
+function migrateV5toV6(payload) {
+  payload.player = payload.player ?? {};
+  payload.player.maxHp = Math.max(1, Math.floor((payload.player.maxHp ?? 18) * COMBAT_SCALE));
+  payload.player.hp = Math.max(0, Math.floor((payload.player.hp ?? payload.player.maxHp) * COMBAT_SCALE));
+  payload.player.effects = (payload.player.effects ?? []).map((e) => {
+    const next = { ...e };
+    if ((next.type === "bless" || next.type === "curse") && Number.isFinite(next.atkDelta) && Math.abs(next.atkDelta) < COMBAT_SCALE) {
+      next.atkDelta = Math.floor(next.atkDelta * COMBAT_SCALE);
+    }
+    if (next.type === "regen" && Number.isFinite(next.healPerTurn) && Math.abs(next.healPerTurn) < COMBAT_SCALE) {
+      next.healPerTurn = Math.floor(next.healPerTurn * COMBAT_SCALE);
+    }
+    return next;
+  });
+
+  payload.entOv = (payload.entOv ?? []).map(([id, ov]) => {
+    if (!ov || typeof ov !== "object") return [id, ov];
+    const next = { ...ov };
+    if (Number.isFinite(next.hp)) next.hp = Math.max(1, Math.floor(next.hp * COMBAT_SCALE));
+    return [id, next];
+  });
+
+  payload.v = 6;
+  return payload;
+}
+
 function importSave(saveStr) {
   try {
     const json = decodeURIComponent(escape(atob(saveStr)));
@@ -2341,7 +2370,8 @@ function importSave(saveStr) {
 
     if (payload.v === 3) payload = migrateV3toV4(payload);
     if (payload.v === 4) payload = migrateV4toV5(payload);
-    if (payload.v !== 5) return null;
+    if (payload.v === 5) payload = migrateV5toV6(payload);
+    if (payload.v !== 6) return null;
 
     const tileOverrides = new Map(payload.tileOv ?? []);
     const world = new World(payload.seed, tileOverrides);
@@ -2372,8 +2402,8 @@ function importSave(saveStr) {
     state.player.xp = Math.max(0, Math.floor(state.player.xp ?? 0));
     state.player.equip = state.player.equip ?? { weapon: null, armor: null };
     state.player.effects = state.player.effects ?? [];
-    state.player.maxHp = state.player.maxHp ?? 18;
-    state.player.hp = clamp(state.player.hp ?? 18, 0, state.player.maxHp);
+    state.player.maxHp = state.player.maxHp ?? 1800;
+    state.player.hp = clamp(state.player.hp ?? 1800, 0, state.player.maxHp);
 
     recalcDerivedStats(state);
 
