@@ -41,18 +41,18 @@
       }
       #wrap {
         display: grid;
-        grid-template-columns: auto 340px;
+        grid-template-columns: auto 380px;
         gap: 14px;
         padding: 14px;
         align-items: start;
         justify-content: center;
       }
-      canvas {
+      canvas#c {
         border: 1px solid #27314a;
         border-radius: 12px;
         background: #070a10;
         image-rendering: pixelated;
-        max-width: calc(100vw - 380px);
+        max-width: calc(100vw - 420px);
         height: auto;
       }
       #side {
@@ -61,14 +61,75 @@
         background: #0a0f1b;
         padding: 12px;
         display: grid;
-        gap: 10px;
+        gap: 12px;
       }
+
+      /* minimap */
+      #miniWrap {
+        border: 1px solid #24304a;
+        border-radius: 10px;
+        padding: 10px;
+        background: #070b12;
+      }
+      #miniHeader {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-bottom: 8px;
+      }
+      #miniHeader b { font-size: 14px; }
+      #miniHeader span { opacity: 0.75; font-size: 12px; }
+      canvas#mini {
+        border: 1px solid #1f2a40;
+        border-radius: 10px;
+        width: 100%;
+        height: auto;
+        image-rendering: pixelated;
+        background: #05070c;
+      }
+      .legend {
+        margin-top: 8px;
+        font-size: 12px;
+        line-height: 1.35;
+        opacity: 0.85;
+      }
+      .dot { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:6px; vertical-align:middle; border:1px solid #1f2a40;}
+      .dot.red { background:#ff6b6b; }
+      .dot.blue { background:#6bb8ff; }
+      .dot.green { background:#7dff6b; }
+      .dot.shrine { background:#b8f2e6; }
+
+      /* panels */
+      .panel {
+        border: 1px solid #24304a;
+        border-radius: 10px;
+        padding: 10px;
+        background: #070b12;
+      }
+      .panel h3 { margin: 0 0 8px 0; font-size: 14px; }
+
+      /* inventory */
+      #invList { display: grid; gap: 6px; }
+      .invItem {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 8px;
+        align-items: center;
+        padding: 6px 8px;
+        border: 1px solid #1f2a40;
+        border-radius: 10px;
+        background: #0a0f1b;
+      }
+      .invItem button { padding: 5px 8px; border-radius: 10px; }
+      .muted { opacity: 0.75; }
+
+      /* log */
       #log {
         border: 1px solid #24304a;
         border-radius: 10px;
         padding: 10px;
         background: #070b12;
-        height: 260px;
+        height: 240px;
         overflow: auto;
         font-size: 13px;
         line-height: 1.35;
@@ -85,28 +146,7 @@
         border-radius: 8px;
         border: 1px solid #24304a;
       }
-
-      /* inventory panel */
-      #inv {
-        border: 1px solid #24304a;
-        border-radius: 10px;
-        padding: 10px;
-        background: #070b12;
-      }
-      #inv h3 { margin: 0 0 8px 0; font-size: 14px; }
-      #invList { display: grid; gap: 6px; }
-      .invItem {
-        display: grid;
-        grid-template-columns: 1fr auto;
-        gap: 8px;
-        align-items: center;
-        padding: 6px 8px;
-        border: 1px solid #1f2a40;
-        border-radius: 10px;
-        background: #0a0f1b;
-      }
-      .invItem button { padding: 5px 8px; border-radius: 10px; }
-      .muted { opacity: 0.75; }
+      #equipText, #effectsText { white-space: pre-wrap; font-size: 12px; line-height: 1.35; }
     </style>
   </head>
   <body>
@@ -126,9 +166,38 @@
       </div>
 
       <div id="side">
-        <div id="inv">
+        <div id="miniWrap">
+          <div id="miniHeader">
+            <b>Minimap</b>
+            <span>(M)</span>
+          </div>
+          <canvas id="mini"></canvas>
+          <div class="legend">
+            Locked doors need matching keys:
+            <div style="margin-top:6px;">
+              <span class="dot red"></span>Red &nbsp;
+              <span class="dot blue"></span>Blue &nbsp;
+              <span class="dot green"></span>Green &nbsp;|&nbsp;
+              <span class="dot shrine"></span>Shrine
+            </div>
+          </div>
+        </div>
+
+        <div class="panel" id="equip">
+          <h3>Equipment</h3>
+          <div id="equipText" class="muted"></div>
+        </div>
+
+        <div class="panel" id="effects">
+          <h3>Effects</h3>
+          <div id="effectsText" class="muted"></div>
+        </div>
+
+        <div class="panel" id="inv">
           <h3>Inventory <span class="muted">(I)</span></h3>
-          <div class="muted" style="font-size:12px;margin-bottom:8px;">Use items with number keys (1–9) or click “Use”.</div>
+          <div class="muted" style="font-size:12px;margin-bottom:8px;">
+            Use/equip with number keys (1–9) or click “Use”.
+          </div>
           <div id="invList"></div>
         </div>
 
@@ -139,8 +208,10 @@
 
         <div id="help">
           Move: <code>Arrow</code>/<code>WASD</code> · Wait: <code>.</code>/<code>Space</code><br />
-          Pickup: <code>G</code> · Inventory: <code>I</code> · Use: <code>1–9</code><br />
-          Stairs: <code>&gt;</code> down, <code>&lt;</code> up (stand on them) · New seed: <code>R</code>
+          Pickup: <code>G</code> · Use/Equip: <code>1–9</code> · Inventory: <code>I</code><br />
+          Doors: bump to open, <code>C</code> close adjacent open door<br />
+          Stairs: <code>&gt;</code> down, <code>&lt;</code> up (stand on them)<br />
+          Interact: <code>E</code> (Shrines) · Toggle minimap: <code>M</code> · New run: <code>R</code>
         </div>
       </div>
     </div>
