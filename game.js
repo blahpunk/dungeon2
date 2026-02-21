@@ -394,7 +394,8 @@ function tryAddTreasureRoom(seedStr, rng, z, grid, anchors) {
 
 function tryAddShrineRoom(seedStr, rng, z, grid, anchors) {
   const specials = {};
-  const chance = clamp(0.08 + z * 0.006, 0, 0.25);
+  // increase base shrine chance and depth scaling so shrines appear more often
+  const chance = clamp(0.14 + z * 0.01, 0, 0.35);
   if (rng() >= chance) return specials;
 
   for (let attempt = 0; attempt < 12; attempt++) {
@@ -718,7 +719,8 @@ function chunkBaseSpawns(worldSeed, chunk) {
     7
   );
 
-  const itemCount = clamp(randInt(rng, 1, 3), 0, 4);
+  // increase possible items per chunk to make potions/chests more common
+  const itemCount = clamp(randInt(rng, 1, 4), 0, 6);
 
   const cells = samplePassableCellsInChunk(grid, rng, monsterCount + itemCount + 18);
   const monsters = [];
@@ -737,13 +739,15 @@ function chunkBaseSpawns(worldSeed, chunk) {
     const c = cells[monsterCount + i];
     if (!c) break;
     const roll = rng();
-    const type = roll < 0.55 ? "potion" : "gold";
+    // higher potion chance
+    const type = roll < 0.75 ? "potion" : "gold";
     const id = `i|${z}|${cx},${cy}|${i}`;
     const amount = type === "gold" ? randInt(rng, 4, 22) + clamp(z, 0, 30) : 1;
     items.push({ id, type, amount, lx: c.x, ly: c.y });
   }
 
-  if (rng() < clamp(0.22 + z * 0.01, 0.22, 0.45)) {
+  // bump chance for extra chests (more frequent, scales with depth)
+  if (rng() < clamp(0.35 + z * 0.02, 0.35, 0.65)) {
     const c = cells[monsterCount + itemCount] ?? cells[cells.length - 1];
     if (c) {
       items.push({ id: `chest_extra|${z}|${cx},${cy}`, type: "chest", amount: 1, lx: c.x, ly: c.y });
@@ -872,26 +876,18 @@ function renderInventory(state) {
     return;
   }
   state.inv.slice(0, 9).forEach((it, idx) => {
-    const row = document.createElement("div");
-    row.className = "invItem";
-    row.tabIndex = 0;
-
     const nm = ITEM_TYPES[it.type]?.name ?? it.type;
-    const left = document.createElement("button");
-    left.className = 'invLabelBtn';
-    left.type = 'button';
-    left.textContent = `${idx + 1}. ${nm}${isStackable(it.type) ? ` x${it.amount}` : ""}`;
+    const btn = document.createElement("button");
+    btn.className = 'invLabelBtn';
+    btn.type = 'button';
+    btn.textContent = `${idx + 1}. ${nm}${isStackable(it.type) ? ` x${it.amount}` : ""}`;
 
     const invoke = () => useInventoryIndex(state, idx);
+    const clickHandler = (e) => { e.stopPropagation(); invoke(); };
+    btn.addEventListener('click', clickHandler);
+    btn.addEventListener('touchstart', (e) => { e.stopPropagation(); e.preventDefault(); invoke(); }, { passive: false });
 
-    // The label itself is a transparent button; stop propagation to avoid
-    // any outer handlers and invoke use on click/tap.
-    const labelClick = (e) => { e.stopPropagation(); invoke(); };
-    left.addEventListener('click', labelClick);
-    left.addEventListener('touchstart', (e) => { e.stopPropagation(); e.preventDefault(); invoke(); }, { passive: false });
-
-    row.appendChild(left);
-    invListEl.appendChild(row);
+    invListEl.appendChild(btn);
   });
 }
 
@@ -1805,15 +1801,16 @@ function tileGlyph(t) {
   return null;
 }
 function itemGlyph(type) {
-  if (type === "potion") return { g: "!", c: "#ffd37c" };
-  if (type === "gold") return { g: "$", c: "#ffe066" };
+  // Updated colors: potions magenta, armor brown, weapons silver, chests yellow, gold gold
+  if (type === "potion") return { g: "!", c: "#ff66cc" };
+  if (type === "gold") return { g: "$", c: "#ffbf00" };
   if (type === "key_red") return { g: "k", c: "#ff6b6b" };
   if (type === "key_blue") return { g: "k", c: "#6bb8ff" };
   if (type === "key_green") return { g: "k", c: "#7dff6b" };
-  if (type === "chest") return { g: "▣", c: "#d9b97a" };
+  if (type === "chest") return { g: "▣", c: "#ffd700" };
   if (type === "shrine") return { g: "✦", c: "#b8f2e6" };
-  if (type?.startsWith("weapon_")) return { g: "†", c: "#d7d0c2" };
-  if (type?.startsWith("armor_")) return { g: "⛨", c: "#c0c8d8" };
+  if (type?.startsWith("weapon_")) return { g: "†", c: "#cfcfcf" };
+  if (type?.startsWith("armor_")) return { g: "⛨", c: "#8b5a2b" };
   return { g: "•", c: "#f4d35e" };
 }
 function monsterGlyph(type) {
@@ -1987,7 +1984,13 @@ function onKey(state, e) {
   else if (k === "arrowright" || k === "d") { e.preventDefault(); takeTurn(state, playerMoveOrAttack(state, 1, 0)); }
   else if (k === "." || k === " " || k === "spacebar") { e.preventDefault(); takeTurn(state, waitTurn(state)); }
   else if (k === "g") { e.preventDefault(); takeTurn(state, pickup(state)); }
-  else if (k === "c") { e.preventDefault(); takeTurn(state, tryCloseAdjacentDoor(state)); }
+  else if (k === "c") { e.preventDefault(); {
+      // Try to close an open adjacent door; if none, try to open a closed adjacent door.
+      const closed = tryCloseAdjacentDoor(state);
+      if (closed) takeTurn(state, true);
+      else takeTurn(state, tryOpenAdjacentDoor(state));
+    }
+  }
 
   // E is now contextual: stairs (up/down) OR shrine interaction
   else if (k === "e") { e.preventDefault(); takeTurn(state, interactContext(state)); }
@@ -2340,4 +2343,22 @@ try {
   loop();
 } catch (err) {
   showFatal(err);
+}
+
+function tryOpenAdjacentDoor(state) {
+  const p = state.player;
+  const dirs = [[0,-1],[1,0],[0,1],[-1,0]];
+  for (const [dx, dy] of dirs) {
+    const x = p.x + dx, y = p.y + dy;
+    const t = state.world.getTile(x, y, p.z);
+    if (t !== DOOR_CLOSED) continue;
+
+    // Opening a closed door does not require checking occupancy
+    state.world.setTile(x, y, p.z, DOOR_OPEN);
+    pushLog(state, "You open the door.");
+    state.visitedDoors?.add(keyXYZ(x, y, p.z));
+    return true;
+  }
+  pushLog(state, "No closed door adjacent to open.");
+  return false;
 }

@@ -234,28 +234,20 @@
       .panel h3 { margin: 0 0 8px 0; font-size: 14px; }
 
       #invList { display: grid; gap: 6px; }
-      .invItem {
-        display: grid;
-        grid-template-columns: 1fr auto;
-        gap: 8px;
-        align-items: center;
-        padding: 6px 8px;
-        border: 1px solid #1f2a40;
-        border-radius: 10px;
-        background: #0a0f1b;
-      }
-      .invItem button { padding: 5px 8px; border-radius: 10px; }
-      .invItem .invLabelBtn {
-        background: transparent;
-        border: none;
-        padding: 0;
-        margin: 0;
+      /* Inventory items are now direct buttons inside #invList */
+      #invList > .invLabelBtn {
+        display: block;
+        width: 100%;
         text-align: left;
+        padding: 8px 4px; /* keep a comfortable tap target */
+        margin: 0;
+        border: none;
+        background: transparent; /* fully transparent */
         color: inherit;
         font: inherit;
         cursor: pointer;
-        width: 100%;
       }
+      #invList > .invLabelBtn:focus { outline: none; }
       .muted { opacity: 0.75; }
 
       /* Panels below minimap: scroll internally if needed */
