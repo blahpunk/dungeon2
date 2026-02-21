@@ -41,10 +41,18 @@
       }
       button:hover { filter: brightness(1.1); }
       .meta {
-        opacity: 0.9;
+        opacity: 0.95;
         font-size: 13px;
         white-space: pre;
-        margin-left: auto;
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        padding: 6px 10px;
+        background: transparent;
+        z-index: 1300;
+        text-align: right;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+        pointer-events: none;
       }
 
       /* MAIN 2-COLUMN LAYOUT */
@@ -320,7 +328,6 @@
       <button id="btnReset">Hard reset</button>
       <button id="btnExport">Copy save</button>
       <button id="btnImport">Load save</button>
-      <div class="meta" id="meta"></div>
     </header>
 
     <div id="wrap">
@@ -328,6 +335,7 @@
       <div id="leftCol">
         <div id="mainCanvasWrap">
           <canvas id="c"></canvas>
+          <div class="meta" id="meta"></div>
 
           <div id="logPanel">
             <div id="logTitle">Message log</div>
