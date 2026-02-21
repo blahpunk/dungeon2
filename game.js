@@ -874,12 +874,27 @@ function renderInventory(state) {
   state.inv.slice(0, 9).forEach((it, idx) => {
     const row = document.createElement("div");
     row.className = "invItem";
+    row.tabIndex = 0;
+
     const left = document.createElement("div");
     const nm = ITEM_TYPES[it.type]?.name ?? it.type;
     left.textContent = `${idx + 1}. ${nm}${isStackable(it.type) ? ` x${it.amount}` : ""}`;
+
     const btn = document.createElement("button");
     btn.textContent = "Use";
-    btn.onclick = () => useInventoryIndex(state, idx);
+
+    const invoke = () => useInventoryIndex(state, idx);
+
+    // Button should not bubble up to the row (avoids double-invoke)
+    const btnClick = (e) => { e.stopPropagation(); invoke(); };
+    btn.addEventListener('click', btnClick);
+    btn.addEventListener('touchstart', (e) => { e.stopPropagation(); e.preventDefault(); invoke(); }, { passive: false });
+
+    // Make the whole row tappable/clickable
+    const rowClick = (e) => { if (e) e.preventDefault(); invoke(); };
+    row.addEventListener('click', rowClick);
+    row.addEventListener('touchstart', (e) => { e.preventDefault(); invoke(); }, { passive: false });
+
     row.appendChild(left);
     row.appendChild(btn);
     invListEl.appendChild(row);
