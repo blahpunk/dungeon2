@@ -746,9 +746,10 @@ function chunkBaseSpawns(worldSeed, chunk) {
     // Small chance this item is actually a chest (locked or unlocked)
     if (rng() < 0.18) {
       const locked = rng() < 0.6;
-      const chestType = locked ? "chest_locked" : "chest";
-      items.push({ id: `chest_inline|${z}|${cx},${cy}|${i}`, type: chestType, amount: 1, lx: c.x, ly: c.y });
+      let keyType = null;
       if (locked) {
+        // choose a key type for this locked chest
+        keyType = z <= 4 ? "key_red" : z <= 10 ? (rng() < 0.6 ? "key_blue" : "key_red") : (rng() < 0.55 ? "key_green" : "key_blue");
         // try to place a key nearby the chest within radius 6
         const maxR = 6;
         for (let attempt = 0; attempt < 12; attempt++) {
@@ -757,11 +758,12 @@ function chunkBaseSpawns(worldSeed, chunk) {
           const kx = clamp(c.x + dx, 1, CHUNK - 2);
           const ky = clamp(c.y + dy, 1, CHUNK - 2);
           if (kx === c.x && ky === c.y) continue;
-          const keyType = z <= 4 ? "key_red" : z <= 10 ? (rng() < 0.6 ? "key_blue" : "key_red") : (rng() < 0.55 ? "key_green" : "key_blue");
           items.push({ id: `key_near_inline|${z}|${cx},${cy}|${i}|${attempt}`, type: keyType, amount: 1, lx: kx, ly: ky });
           break;
         }
       }
+      // push the chest as a chest entity but include locked/keyType metadata
+      items.push({ id: `chest_inline|${z}|${cx},${cy}|${i}`, type: "chest", amount: 1, lx: c.x, ly: c.y, locked: locked, keyType });
     } else {
       items.push({ id, type, amount, lx: c.x, ly: c.y });
     }
@@ -1014,6 +1016,8 @@ function hydrateChunkEntities(state, z, cx, cy) {
       type: it.type,
       amount: it.amount ?? 1,
       x: wx, y: wy, z,
+      locked: it.locked,
+      keyType: it.keyType,
     });
   }
 }
@@ -1438,6 +1442,14 @@ function pickup(state) {
     invAdd(state, it.type, 1);
     pushLog(state, `Picked up ${ITEM_TYPES[it.type].name}.`);
   } else if (it.type === "chest") {
+    if (it.locked) {
+      const keyType = it.keyType;
+      if (!keyType || !invConsume(state, keyType, 1)) {
+        pushLog(state, "The chest is locked. You need the correct key to open it.");
+        return false;
+      }
+      pushLog(state, `You use the ${ITEM_TYPES[keyType].name} and open the Chest.`);
+    }
     const g = 15 + Math.floor(Math.random() * (25 + clamp(p.z, 0, 25)));
     p.gold += g;
     pushLog(state, `You open the Chest. (+${g} gold)`);
