@@ -59,11 +59,11 @@
         align-items: stretch;
       }
 
-      /* LEFT COLUMN: dungeon view (maximized) + fixed-height log */
+      /* LEFT COLUMN: dungeon view (maximized) */
       #leftCol {
         min-height: 0;
         display: grid;
-        grid-template-rows: 1fr auto;
+        grid-template-rows: 1fr;
         gap: 10px;
         overflow: visible;
       }
@@ -71,6 +71,7 @@
       /* Main canvas container: center a square canvas that fills the available height */
       #mainCanvasWrap {
         min-height: 0;
+        position: relative;
         display: flex;
         align-items: center;   /* center vertically */
         justify-content: center; /* center horizontally */
@@ -109,11 +110,19 @@
       }
 
       #logPanel {
-        border: 1px solid #27314a;
-        border-radius: 12px;
-        background: #0a0f1b;
-        padding: 10px;
+        border: none;
+        border-radius: 0;
+        background: transparent;
+        padding: 0;
+        position: absolute;
+        bottom: 12px;
+        left: 12px;
+        z-index: 1200;
+        width: min(56%, 520px);
+        max-width: calc(100% - 32px);
+        pointer-events: auto;
       }
+      #logTitle { display: none; }
       #logTitle {
         font-weight: 700;
         margin: 0 0 6px 0;
@@ -124,11 +133,10 @@
         border-radius: 10px;
         padding: 10px;
         background: #070b12;
-
-        /* exactly 12 lines tall (and scrollable) */
+        /* a compact overlay height and scrollable */
         font-size: 13px;
         line-height: 1.35;
-        height: calc(12 * 1.35em + 20px);
+        height: calc(6 * 1.35em + 20px);
         overflow: auto;
         white-space: pre-wrap;
       }
@@ -220,19 +228,19 @@
         padding-right: 2px;
       }
 
-      #help {
-        opacity: 0.8;
-        font-size: 12px;
-        line-height: 1.35;
-      }
+      #log {
+        border: none;
+        border-radius: 0;
+        padding: 6px 8px;
+        background: transparent;
 
-      code {
-        background: #10182a;
-        padding: 2px 6px;
-        border-radius: 8px;
-        border: 1px solid #24304a;
+        /* a compact overlay height and scrollable */
+        font-size: 13px;
+        line-height: 1.35;
+        height: calc(6 * 1.35em + 20px);
+        overflow: auto;
+        white-space: pre-wrap;
       }
-      #equipText, #effectsText { white-space: pre-wrap; font-size: 12px; line-height: 1.35; }
 
       /* Responsive fallback */
       @media (max-width: 980px) {
@@ -320,11 +328,11 @@
       <div id="leftCol">
         <div id="mainCanvasWrap">
           <canvas id="c"></canvas>
-        </div>
 
-        <div id="logPanel">
-          <div id="logTitle">Message log</div>
-          <div id="log"></div>
+          <div id="logPanel">
+            <div id="logTitle">Message log</div>
+            <div id="log"></div>
+          </div>
         </div>
       </div>
 
