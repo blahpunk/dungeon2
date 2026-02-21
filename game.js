@@ -1884,11 +1884,12 @@ function draw(state) {
   ctx.fillRect(VIEW_RADIUS * TILE + 3, VIEW_RADIUS * TILE + 3, TILE - 6, TILE - 6);
 
   const { cx, cy, lx, ly } = splitWorldToChunk(player.x, player.y);
-  metaEl.textContent =
-    `seed: ${world.seedStr}  depth: ${player.z}  theme: ${theme.name}\n` +
-    `pos: (${player.x}, ${player.y}) chunk: (${cx}, ${cy}) local: (${lx}, ${ly})\n` +
-    `HP: ${player.hp}/${player.maxHp}  LVL: ${player.level}  XP: ${player.xp}/${xpToNext(player.level)}\n` +
-    `ATK: ${Math.max(1, player.atkLo + player.atkBonus)}-${Math.max(1, player.atkHi + player.atkBonus)}  DEF: +${player.defBonus}  Gold: ${player.gold}`;
+  metaEl.innerHTML =
+    `<div class="meta-seed">seed: ${world.seedStr} &nbsp; depth: ${player.z} &nbsp; theme: ${theme.name}</div>` +
+    `<div class="meta-pos">pos: (${player.x}, ${player.y}) chunk: (${cx}, ${cy}) local: (${lx}, ${ly})</div>` +
+    `<div class="meta-row"><div class="meta-col"><span class="label">XP</span><span class="val xp">${player.xp}</span></div><div class="meta-col"><span class="label">Gold</span><span class="val gold">${player.gold}</span></div></div>` +
+    `<div class="meta-row"><div class="meta-col"><span class="label">ATK</span><span class="val atk">${Math.max(1, player.atkLo + player.atkBonus)}-${Math.max(1, player.atkHi + player.atkBonus)}</span></div><div class="meta-col"><span class="label">DEF</span><span class="val def">+${player.defBonus}</span></div></div>` +
+    `<div class="meta-row"><div class="meta-col"><span class="label">HP</span><span class="val hp">${player.hp}/${player.maxHp}</span></div><div class="meta-col"><span class="label">LVL</span><span class="val lvl">${player.level}</span></div></div>`;
 
   if (player.dead) {
     ctx.fillStyle = theme.overlay;
