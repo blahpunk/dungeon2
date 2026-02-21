@@ -6,15 +6,24 @@
     <title>Infinite Dungeon Roguelike</title>
     <style>
       :root { color-scheme: dark; }
+
+      /* Make the page a fixed-height app layout */
+      html, body { height: 100%; }
       body {
         margin: 0;
         font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial;
         background: #0b0e14;
         color: #e6e6e6;
+
+        /* Header row + "app" row */
         display: grid;
         grid-template-rows: auto 1fr;
         min-height: 100vh;
+
+        /* Prevent the whole page from scrolling; we’ll manage overflow inside */
+        overflow: hidden;
       }
+
       header {
         padding: 10px 12px;
         border-bottom: 1px solid #1e2533;
@@ -39,29 +48,63 @@
         white-space: pre;
         margin-left: auto;
       }
+
+      /* Main two-column app area: consumes remaining height under header */
       #wrap {
+        height: 100%;
+        min-height: 0;            /* IMPORTANT for nested overflow/flex/grid */
         display: grid;
-        grid-template-columns: auto 380px;
+        grid-template-columns: 1fr 380px;
         gap: 14px;
         padding: 14px;
-        align-items: start;
-        justify-content: center;
+
+        /* Instead of "justify-content: center" which can squeeze height,
+           keep it natural and allow child scrolling if needed */
+        align-items: stretch;
       }
+
+      /* Left column becomes a 2-row grid: canvas on top, wide log panel below */
+      #wrap > div:first-child {
+        min-height: 0;
+        overflow: hidden; /* no scrolling on the column itself */
+        display: grid;
+        grid-template-rows: 1fr auto;
+        gap: 12px;
+        align-items: start;
+      }
+
+      /* Canvas holder: can scroll if viewport is short */
+      #mainCanvasWrap {
+        min-height: 0;
+        overflow: auto;
+        display: grid;
+        place-items: start;
+      }
+
       canvas#c {
         border: 1px solid #27314a;
         border-radius: 12px;
         background: #070a10;
         image-rendering: pixelated;
-        max-width: calc(100vw - 420px);
+
+        /* Don’t exceed available space */
+        max-width: 100%;
         height: auto;
       }
+
+      /* Sidebar: flex column so items stack naturally */
       #side {
         border: 1px solid #27314a;
         border-radius: 12px;
         background: #0a0f1b;
         padding: 12px;
-        display: grid;
+
+        display: flex;
+        flex-direction: column;
         gap: 12px;
+
+        min-height: 0;   /* IMPORTANT */
+        overflow: hidden;
       }
 
       /* minimap */
@@ -70,6 +113,7 @@
         border-radius: 10px;
         padding: 10px;
         background: #070b12;
+        flex: 0 0 auto;
       }
       #miniHeader {
         display: flex;
@@ -105,6 +149,7 @@
         border-radius: 10px;
         padding: 10px;
         background: #070b12;
+        flex: 0 0 auto;
       }
       .panel h3 { margin: 0 0 8px 0; font-size: 14px; }
 
@@ -123,23 +168,38 @@
       .invItem button { padding: 5px 8px; border-radius: 10px; }
       .muted { opacity: 0.75; }
 
-      /* log */
+      /* WIDE MESSAGE PANEL under the canvas */
+      #logPanel {
+        border: 1px solid #27314a;
+        border-radius: 12px;
+        background: #0a0f1b;
+        padding: 12px;
+        min-height: 0;
+      }
+
+      /* 12 lines high, scrollable */
       #log {
         border: 1px solid #24304a;
         border-radius: 10px;
         padding: 10px;
         background: #070b12;
-        height: 240px;
+
+        height: calc(12 * 1.35em + 20px); /* 12 lines @ line-height 1.35 + padding buffer */
         overflow: auto;
+
         font-size: 13px;
         line-height: 1.35;
         white-space: pre-wrap;
       }
+
+      /* Help stays in sidebar bottom */
       #help {
         opacity: 0.8;
         font-size: 12px;
         line-height: 1.35;
+        flex: 0 0 auto;
       }
+
       code {
         background: #10182a;
         padding: 2px 6px;
@@ -147,6 +207,19 @@
         border: 1px solid #24304a;
       }
       #equipText, #effectsText { white-space: pre-wrap; font-size: 12px; line-height: 1.35; }
+
+      /* Responsive: stack sidebar under canvas on narrow screens */
+      @media (max-width: 980px) {
+        body { overflow: auto; } /* allow page scroll on small screens */
+        #wrap {
+          grid-template-columns: 1fr;
+          height: auto;
+          min-height: unset;
+        }
+        #side {
+          overflow: visible;
+        }
+      }
     </style>
   </head>
   <body>
@@ -162,7 +235,15 @@
 
     <div id="wrap">
       <div>
-        <canvas id="c"></canvas>
+        <div id="mainCanvasWrap">
+          <canvas id="c"></canvas>
+        </div>
+
+        <!-- MOVED: Message log is now a wide panel beneath the main view -->
+        <div id="logPanel">
+          <div style="font-weight:700;margin-bottom:6px;">Message log</div>
+          <div id="log"></div>
+        </div>
       </div>
 
       <div id="side">
@@ -199,11 +280,6 @@
             Use/equip with number keys (1–9) or click “Use”.
           </div>
           <div id="invList"></div>
-        </div>
-
-        <div>
-          <div style="font-weight:700;margin-bottom:6px;">Message log</div>
-          <div id="log"></div>
         </div>
 
         <div id="help">
