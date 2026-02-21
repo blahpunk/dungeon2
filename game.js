@@ -1,13 +1,10 @@
 // Infinite Dungeon Roguelike (Explore-Generated, Chunked, Multi-depth)
-// v4.4
-// - Balance: slightly more monsters than v4.2 (kept from v4.3)
-// - Key/Lock pairing FIX: when you acquire a colored key, convert an EXISTING nearby
-//   "normal" doorway (+) into a matching locked door (R/B/G), not too close, and only
-//   if the player hasn't navigated through that doorway tile yet.
-//   Door candidates are filtered to prefer room<->corridor doorways.
-//   (No more spawning a locked door in open space.)
+// v4.5
+// - UI/Controls:
+//   - "E" is now contextual: interacts with shrines OR uses stairs (up/down) when standing on them.
+//   - Confirm prompts for starting a New Run via "R", and for clicking New Seed / Hard Reset buttons.
+//     Prompts explain exactly what each action does.
 
-// ---------- Config ----------
 const CHUNK = 32;
 const TILE = 16;
 const VIEW_RADIUS = 14;
@@ -498,7 +495,6 @@ function generateChunk(seedStr, z, cx, cy) {
   if (rooms.length >= 3 && rng() < 0.6)
     carveCorridor(grid, rng, rooms[0].cx, rooms[0].cy, rooms[rooms.length - 1].cx, rooms[rooms.length - 1].cy);
 
-  // ensure at least one open edge
   const openCount = ["N","S","W","E"].reduce((n, d) => n + (edges[d].open ? 1 : 0), 0);
   if (openCount === 0) edges.E.open = true;
 
@@ -546,13 +542,9 @@ function generateChunk(seedStr, z, cx, cy) {
 
   openDoorAt("N"); openDoorAt("S"); openDoorAt("W"); openDoorAt("E");
 
-  // stitch islands
   ensureChunkConnectivity(grid, rng);
-
-  // doors + locks
   placeInternalDoors(grid, rng, z);
 
-  // Stairs down (forced in start chunk)
   const hasStairs = (z === 0 && cx === 0 && cy === 0) || rng() < 0.14;
   if (hasStairs) {
     let best = null, bestD = Infinity;
@@ -590,7 +582,7 @@ class World {
     return c;
   }
   normalizeTile(t) {
-    if (t === "*") return LOCK_RED; // old saves
+    if (t === "*") return LOCK_RED;
     return t;
   }
   getTile(x, y, z) {
@@ -716,15 +708,12 @@ function chunkBaseSpawns(worldSeed, chunk) {
 
   const depthBoost = clamp(z, 0, 60);
 
-  // Monsters: slightly more than "low-population" versions but not overwhelming
-  // (Keeps fights frequent while still leaving breathing room for loot.)
   const monsterCount = clamp(
     randInt(rng, 1, 3) + (rng() < depthBoost / 55 ? 1 : 0) + (rng() < 0.22 ? 1 : 0),
     0,
     7
   );
 
-  // Items: a bit more generous (potion/gold + more chests)
   const itemCount = clamp(randInt(rng, 1, 3), 0, 4);
 
   const cells = samplePassableCellsInChunk(grid, rng, monsterCount + itemCount + 18);
@@ -750,7 +739,6 @@ function chunkBaseSpawns(worldSeed, chunk) {
     items.push({ id, type, amount, lx: c.x, ly: c.y });
   }
 
-  // Extra chest chance per chunk (helps survival)
   if (rng() < clamp(0.22 + z * 0.01, 0.22, 0.45)) {
     const c = cells[monsterCount + itemCount] ?? cells[cells.length - 1];
     if (c) {
@@ -923,8 +911,6 @@ function makeNewGame(seedStr = randomSeedString()) {
     inv: [],
     dynamic: new Map(),
     turn: 0,
-
-    // Door history: tiles the player has stepped on / opened (avoid locking these)
     visitedDoors: new Set(),
   };
 
@@ -1232,10 +1218,7 @@ function tryOpenClosedDoor(state, x, y, z) {
   if (t !== DOOR_CLOSED) return false;
   state.world.setTile(x, y, z, DOOR_OPEN);
   pushLog(state, "You open the door.");
-
-  // mark this doorway as "visited" so we don't later convert it into a locked door
   state.visitedDoors?.add(keyXYZ(x, y, z));
-
   return true;
 }
 
@@ -1288,7 +1271,6 @@ function dropEquipmentFromChest(state) {
       : (Math.random() < 0.55 ? "key_green" : "key_blue");
     invAdd(state, key, 1);
     pushLog(state, `Found a ${ITEM_TYPES[key].name}!`);
-    // When you gain a key, place a matching locked door later, as an existing doorway replacement.
     placeMatchingLockedDoorNearPlayer(state, key);
   }
 }
@@ -1376,7 +1358,6 @@ function playerMoveOrAttack(state, dx, dy) {
     return false;
   }
 
-  // if you walked through a door tile (open door), mark as visited
   const hereTile = state.world.getTile(nx, ny, nz);
   if (hereTile === DOOR_OPEN) state.visitedDoors?.add(keyXYZ(nx, ny, nz));
 
@@ -1411,8 +1392,10 @@ function pickup(state) {
     invAdd(state, it.type, it.amount ?? 1);
     pushLog(state, `Picked up a ${ITEM_TYPES[it.type].name}.`);
     placeMatchingLockedDoorNearPlayer(state, it.type);
-  } else if (it.type === "weapon_dagger" || it.type === "weapon_sword" || it.type === "weapon_axe"
-          || it.type === "armor_leather" || it.type === "armor_chain" || it.type === "armor_plate") {
+  } else if (
+    it.type === "weapon_dagger" || it.type === "weapon_sword" || it.type === "weapon_axe" ||
+    it.type === "armor_leather" || it.type === "armor_chain" || it.type === "armor_plate"
+  ) {
     invAdd(state, it.type, 1);
     pushLog(state, `Picked up ${ITEM_TYPES[it.type].name}.`);
   } else if (it.type === "chest") {
@@ -1502,7 +1485,7 @@ function deterministicShrineEffect(seed, z, cx, cy) {
   return { type: "curse" };
 }
 
-function interact(state) {
+function interactShrine(state) {
   const p = state.player;
   if (p.dead) return false;
 
@@ -1615,6 +1598,18 @@ function tryUseStairs(state, dir) {
     goToLevel(state, p.z - 1, "up");
     return true;
   }
+}
+
+// Contextual interact: stairs first, then shrine
+function interactContext(state) {
+  const p = state.player;
+  if (p.dead) return false;
+
+  const here = state.world.getTile(p.x, p.y, p.z);
+  if (here === STAIRS_DOWN) return tryUseStairs(state, "down");
+  if (here === STAIRS_UP) return tryUseStairs(state, "up");
+
+  return interactShrine(state);
 }
 
 // ---------- Monster AI ----------
@@ -1750,18 +1745,11 @@ function monstersTurn(state) {
   }
 }
 
-// ---------- Rendering ----------
-
-// ---------- Glyph overlays (readability) ----------
+// ---------- Rendering (glyph overlays) ----------
 const GLYPH_FONT = `bold ${Math.floor(TILE * 0.78)}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace`;
-
-/**
- * Draw a centered glyph inside a tile.
- * We keep this tiny + deterministic so it stays crisp with pixel art tiles.
- */
 function drawGlyph(ctx2d, sx, sy, glyph, color = "#e6e6e6") {
   const cx = sx * TILE + TILE / 2;
-  const cy = sy * TILE + TILE / 2 + 0.5; // slight baseline nudge
+  const cy = sy * TILE + TILE / 2 + 0.5;
   ctx2d.save();
   ctx2d.font = GLYPH_FONT;
   ctx2d.textAlign = "center";
@@ -1770,7 +1758,6 @@ function drawGlyph(ctx2d, sx, sy, glyph, color = "#e6e6e6") {
   ctx2d.fillText(glyph, cx, cy);
   ctx2d.restore();
 }
-
 function tileGlyph(t) {
   if (t === STAIRS_DOWN) return { g: "▼", c: "#d6f5d6" };
   if (t === STAIRS_UP) return { g: "▲", c: "#e8d6ff" };
@@ -1781,7 +1768,6 @@ function tileGlyph(t) {
   if (t === DOOR_OPEN) return { g: "/", c: "#b8d6ff" };
   return null;
 }
-
 function itemGlyph(type) {
   if (type === "potion") return { g: "!", c: "#ffd37c" };
   if (type === "gold") return { g: "$", c: "#ffe066" };
@@ -1791,10 +1777,9 @@ function itemGlyph(type) {
   if (type === "chest") return { g: "▣", c: "#d9b97a" };
   if (type === "shrine") return { g: "✦", c: "#b8f2e6" };
   if (type?.startsWith("weapon_")) return { g: "†", c: "#d7d0c2" };
-  if (type?.startsWith("armor_")) return { g: "⛨", c: "#c0c8d8" }; // fallback glyph if font lacks: still renders in most
+  if (type?.startsWith("armor_")) return { g: "⛨", c: "#c0c8d8" };
   return { g: "•", c: "#f4d35e" };
 }
-
 function monsterGlyph(type) {
   if (type === "rat") return { g: "r", c: "#ff6b6b" };
   if (type === "goblin") return { g: "g", c: "#ff6b6b" };
@@ -1839,7 +1824,6 @@ function draw(state) {
       ctx.fillStyle = fill;
       ctx.fillRect(sx * TILE, sy * TILE, TILE, TILE);
 
-      // Overlay a glyph for certain tiles (stairs/doors/locks) for readability.
       const tg = tileGlyph(t);
       if (tg) {
         const col = (isVisible || !fogEnabled) ? tg.c : "rgba(230,230,230,0.45)";
@@ -1852,7 +1836,6 @@ function draw(state) {
 
         if (ik) {
           const ent = state.entities.get(ik);
-          // keep a subtle marker block, then overlay a glyph for clarity
           ctx.fillStyle =
             ent?.type === "shrine" ? "#b8f2e6" :
             ent?.type === "chest" ? "#d9b97a" :
@@ -1920,18 +1903,27 @@ function takeTurn(state, didSpendTurn) {
   saveNow(state);
 }
 
+// ---------- Confirm helpers ----------
+function confirmNewRun() {
+  return confirm(
+    "Start a NEW RUN with a NEW SEED?\n\n" +
+    "This will immediately replace your current run (position, dungeon progress, inventory, everything).\n" +
+    "If you want to keep it, use Export first.\n\n" +
+    "Start new run now?"
+  );
+}
+function confirmHardReset() {
+  return confirm(
+    "HARD RESET (delete saved game)?\n\n" +
+    "This will permanently delete the saved run from this browser (localStorage).\n" +
+    "You will start a brand-new run with a new seed.\n\n" +
+    "Hard reset now?"
+  );
+}
+
 // ---------- Input ----------
 function onKey(state, e) {
   const k = e.key.toLowerCase();
-
-  if (state.player.dead) {
-    if (k === "r") {
-      e.preventDefault();
-      game = makeNewGame();
-      saveNow(game);
-    }
-    return;
-  }
 
   if (e.key >= "1" && e.key <= "9") {
     e.preventDefault();
@@ -1946,13 +1938,22 @@ function onKey(state, e) {
   else if (k === "." || k === " " || k === "spacebar") { e.preventDefault(); takeTurn(state, waitTurn(state)); }
   else if (k === "g") { e.preventDefault(); takeTurn(state, pickup(state)); }
   else if (k === "c") { e.preventDefault(); takeTurn(state, tryCloseAdjacentDoor(state)); }
-  else if (k === "e") { e.preventDefault(); takeTurn(state, interact(state)); }
+
+  // E is now contextual: stairs (up/down) OR shrine interaction
+  else if (k === "e") { e.preventDefault(); takeTurn(state, interactContext(state)); }
+
   else if (k === "i") { e.preventDefault(); renderInventory(state); }
   else if (k === "m") { e.preventDefault(); minimapEnabled = !minimapEnabled; saveNow(state); }
   else if (e.key === ">") { e.preventDefault(); takeTurn(state, tryUseStairs(state, "down")); }
   else if (e.key === "<") { e.preventDefault(); takeTurn(state, tryUseStairs(state, "up")); }
   else if (k === "f") { e.preventDefault(); fogEnabled = !fogEnabled; saveNow(state); }
-  else if (k === "r") { e.preventDefault(); game = makeNewGame(); saveNow(game); }
+
+  else if (k === "r") {
+    e.preventDefault();
+    if (!confirmNewRun()) return;
+    game = makeNewGame();
+    saveNow(game);
+  }
 }
 
 // ---------- Key→Locked Door pairing (doorway-only replacement) ----------
@@ -1964,12 +1965,10 @@ function keyTypeToLockTile(keyType) {
 
 function isDoorwayCandidate(state, x, y, z) {
   const t = state.world.getTile(x, y, z);
-  if (t !== DOOR_CLOSED) return false; // only replace "normal" closed doors
+  if (t !== DOOR_CLOSED) return false;
 
-  // must not be already visited/opened by player
   if (state.visitedDoors?.has(keyXYZ(x, y, z))) return false;
 
-  // must be in a "door frame" between two floor-ish spaces and walls on the other axis
   const floorish = (tt) => tt === FLOOR || tt === DOOR_OPEN || tt === STAIRS_DOWN || tt === STAIRS_UP;
   const n = state.world.getTile(x, y - 1, z), s = state.world.getTile(x, y + 1, z);
   const w = state.world.getTile(x - 1, y, z), e = state.world.getTile(x + 1, y, z);
@@ -1985,8 +1984,6 @@ function placeMatchingLockedDoorNearPlayer(state, keyType) {
   const z = p.z;
   const lockTile = keyTypeToLockTile(keyType);
 
-  // If a matching lock already exists in the "nearby" area, don't spam new locks.
-  // (We still want some, but not every key to immediately force a lock.)
   let foundExisting = false;
   for (let dy = -48; dy <= 48 && !foundExisting; dy++) {
     for (let dx = -48; dx <= 48; dx++) {
@@ -1996,7 +1993,6 @@ function placeMatchingLockedDoorNearPlayer(state, keyType) {
   }
   if (foundExisting) return;
 
-  // Search for an existing normal door (+) to convert, not too close.
   const minDist = 10;
   const maxDist = 48;
   const candidates = [];
@@ -2007,7 +2003,7 @@ function placeMatchingLockedDoorNearPlayer(state, keyType) {
       const wy = p.y + dy;
       const d = Math.abs(dx) + Math.abs(dy);
       if (d < minDist || d > maxDist) continue;
-      if (!state.seen.has(keyXYZ(wx, wy, z))) continue; // prefer in explored zone
+      if (!state.seen.has(keyXYZ(wx, wy, z))) continue;
       if (!isDoorwayCandidate(state, wx, wy, z)) continue;
       candidates.push({ x: wx, y: wy, d });
     }
@@ -2015,7 +2011,6 @@ function placeMatchingLockedDoorNearPlayer(state, keyType) {
 
   if (!candidates.length) return;
 
-  // prefer "medium distance": farther than minDist but not necessarily at the edge
   candidates.sort((a, b) => a.d - b.d);
   const pick = candidates[Math.floor(candidates.length * 0.65)] ?? candidates[candidates.length - 1];
 
@@ -2145,14 +2140,32 @@ function loadSaveOrNew() {
 }
 
 // ---------- Buttons ----------
-document.getElementById("btnNew").addEventListener("click", () => { game = makeNewGame(); saveNow(game); });
-document.getElementById("btnFog").addEventListener("click", () => { fogEnabled = !fogEnabled; saveNow(game); });
-document.getElementById("btnReset").addEventListener("click", () => { localStorage.removeItem(SAVE_KEY); game = makeNewGame(); saveNow(game); });
+document.getElementById("btnNew").addEventListener("click", () => {
+  // "New Seed" (new run w/ new seed) — confirm
+  if (!confirmNewRun()) return;
+  game = makeNewGame();
+  saveNow(game);
+});
+
+document.getElementById("btnFog").addEventListener("click", () => {
+  fogEnabled = !fogEnabled;
+  saveNow(game);
+});
+
+document.getElementById("btnReset").addEventListener("click", () => {
+  // Hard Reset — confirm
+  if (!confirmHardReset()) return;
+  localStorage.removeItem(SAVE_KEY);
+  game = makeNewGame();
+  saveNow(game);
+});
+
 document.getElementById("btnExport").addEventListener("click", async () => {
   const save = exportSave(game);
   try { await navigator.clipboard.writeText(save); alert("Save copied to clipboard."); }
   catch { prompt("Copy this save string:", save); }
 });
+
 document.getElementById("btnImport").addEventListener("click", () => {
   const str = prompt("Paste save string:");
   if (!str) return;
