@@ -128,6 +128,23 @@
         overflow: hidden;
       }
 
+      /* Collapsed panels state: shrink right column to zero while keeping layout stable */
+      #wrap.panels-collapsed {
+        grid-template-columns: 1fr 0px;
+      }
+      #wrap.panels-collapsed #rightCol {
+        width: 0;
+        min-width: 0;
+        padding: 0;
+        pointer-events: none;
+        opacity: 0;
+      }
+
+      /* Smooth transition when toggling panels */
+      #wrap {
+        transition: grid-template-columns 220ms ease, padding 180ms ease;
+      }
+
       #miniWrap {
         border: 1px solid #24304a;
         border-radius: 12px;
@@ -148,16 +165,13 @@
       canvas#mini {
         display: block;
         margin: 0 auto;
-        border: 1px solid #1f2a40;
-        border-radius: 10px;
-        image-rendering: pixelated;
-        background: #05070c;
 
-        width: auto;
+        /* Allow the canvas to scale down responsively so it remains visible
+           on narrow/mobile screens while keeping pixelated rendering. */
+        max-width: 100%;
+        width: 100%;
         height: auto;
-        max-width: none;
-        max-height: none;
-      }
+        margin: 0 auto; /* center when there is extra space */
 
       .legend {
         margin-top: 8px;
@@ -235,6 +249,7 @@
   <body>
     <header>
       <div class="title">DungeonPunk!</div>
+      <button id="btnTogglePanels" title="Toggle side panels">Toggle UI</button>
       <button id="btnNew">New seed</button>
       <button id="btnFog">Toggle fog</button>
       <button id="btnReset">Hard reset</button>

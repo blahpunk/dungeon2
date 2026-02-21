@@ -33,6 +33,33 @@ const invListEl = document.getElementById("invList");
 const equipTextEl = document.getElementById("equipText");
 const effectsTextEl = document.getElementById("effectsText");
 
+// Right-side panels / wrap toggle
+const btnTogglePanels = document.getElementById("btnTogglePanels");
+const wrapEl = document.getElementById("wrap");
+const rightColEl = document.getElementById("rightCol");
+
+const PANELS_KEY = "dungeon_panels_collapsed_v1";
+function setPanelsCollapsed(collapsed, save = true) {
+  if (!wrapEl) return;
+  wrapEl.classList.toggle("panels-collapsed", !!collapsed);
+  if (btnTogglePanels) btnTogglePanels.textContent = collapsed ? "Show UI" : "Hide UI";
+  if (save) localStorage.setItem(PANELS_KEY, collapsed ? "1" : "0");
+}
+
+if (btnTogglePanels) {
+  btnTogglePanels.addEventListener("click", () => {
+    const isCollapsed = wrapEl && wrapEl.classList.contains("panels-collapsed");
+    setPanelsCollapsed(!isCollapsed, true);
+  });
+}
+
+// Initialize collapse state from storage or default for small screens
+try {
+  const saved = localStorage.getItem(PANELS_KEY);
+  if (saved !== null) setPanelsCollapsed(saved === "1", false);
+  else if (typeof window !== "undefined" && window.innerWidth <= 900) setPanelsCollapsed(true, false);
+} catch (e) { /* ignore localStorage errors */ }
+
 const mini = document.getElementById("mini");
 const mctx = mini.getContext("2d");
 
