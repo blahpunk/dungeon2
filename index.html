@@ -41,6 +41,9 @@
       }
       button:hover { filter: brightness(1.1); }
       .meta {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
         opacity: 0.95;
         font-size: 13px;
         white-space: pre;
@@ -50,15 +53,21 @@
         padding: 6px 10px;
         background: transparent;
         z-index: 1300;
-        text-align: right;
         text-shadow: 0 1px 2px rgba(0,0,0,0.8);
         pointer-events: none;
       }
       .meta .meta-seed, .meta .meta-pos { opacity: 0.9; font-size: 12px; }
-      .meta .meta-row { display: flex; gap: 12px; margin-top: 6px; }
-      .meta .meta-col { display: flex; gap: 8px; align-items: baseline; min-width: 64px; }
+      .meta .meta-row { display: flex; gap: 12px; margin-top: 6px; justify-content: flex-end; }
+      .meta .meta-col { display: flex; gap: 8px; align-items: baseline; min-width: 64px; justify-content: flex-end; }
       .meta .meta-col .label { opacity: 0.85; font-weight: 700; font-size: 13px; }
       .meta .meta-col .val { color: #fff; font-weight: 900; font-size: 15px; margin-left: 6px; }
+
+      /* HP low flashing */
+      .meta .val.hp.hp-low { color: #ff6b6b; animation: hp-pulse 1s ease-in-out infinite; }
+      @keyframes hp-pulse {
+        0%,100% { text-shadow: 0 0 0 rgba(255,107,107,0.0); transform: scale(1); }
+        50% { text-shadow: 0 0 8px rgba(255,107,107,0.9); transform: scale(1.03); }
+      }
 
       /* MAIN 2-COLUMN LAYOUT */
       #wrap {

@@ -1891,6 +1891,16 @@ function draw(state) {
     `<div class="meta-row"><div class="meta-col"><span class="label">ATK</span><span class="val atk">${Math.max(1, player.atkLo + player.atkBonus)}-${Math.max(1, player.atkHi + player.atkBonus)}</span></div><div class="meta-col"><span class="label">DEF</span><span class="val def">+${player.defBonus}</span></div></div>` +
     `<div class="meta-row"><div class="meta-col"><span class="label">HP</span><span class="val hp">${player.hp}/${player.maxHp}</span></div><div class="meta-col"><span class="label">LVL</span><span class="val lvl">${player.level}</span></div></div>`;
 
+  // Visual indicator for low HP: toggle hp-low class when HP <= 30% of max
+  try {
+    const hpNode = metaEl.querySelector('.val.hp');
+    if (hpNode) {
+      const threshold = Math.ceil((player.maxHp || 1) * 0.3);
+      if (player.hp <= threshold) hpNode.classList.add('hp-low');
+      else hpNode.classList.remove('hp-low');
+    }
+  } catch (e) { /* ignore DOM errors */ }
+
   if (player.dead) {
     ctx.fillStyle = theme.overlay;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
