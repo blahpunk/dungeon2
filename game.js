@@ -743,7 +743,28 @@ function chunkBaseSpawns(worldSeed, chunk) {
     const type = roll < 0.75 ? "potion" : "gold";
     const id = `i|${z}|${cx},${cy}|${i}`;
     const amount = type === "gold" ? randInt(rng, 4, 22) + clamp(z, 0, 30) : 1;
-    items.push({ id, type, amount, lx: c.x, ly: c.y });
+    // Small chance this item is actually a chest (locked or unlocked)
+    if (rng() < 0.18) {
+      const locked = rng() < 0.6;
+      const chestType = locked ? "chest_locked" : "chest";
+      items.push({ id: `chest_inline|${z}|${cx},${cy}|${i}`, type: chestType, amount: 1, lx: c.x, ly: c.y });
+      if (locked) {
+        // try to place a key nearby the chest within radius 6
+        const maxR = 6;
+        for (let attempt = 0; attempt < 12; attempt++) {
+          const dx = randInt(rng, -maxR, maxR);
+          const dy = randInt(rng, -maxR, maxR);
+          const kx = clamp(c.x + dx, 1, CHUNK - 2);
+          const ky = clamp(c.y + dy, 1, CHUNK - 2);
+          if (kx === c.x && ky === c.y) continue;
+          const keyType = z <= 4 ? "key_red" : z <= 10 ? (rng() < 0.6 ? "key_blue" : "key_red") : (rng() < 0.55 ? "key_green" : "key_blue");
+          items.push({ id: `key_near_inline|${z}|${cx},${cy}|${i}|${attempt}`, type: keyType, amount: 1, lx: kx, ly: ky });
+          break;
+        }
+      }
+    } else {
+      items.push({ id, type, amount, lx: c.x, ly: c.y });
+    }
   }
 
   // bump chance for extra chests (more frequent, scales with depth)
@@ -1878,26 +1899,12 @@ function draw(state) {
 
         if (ik) {
           const ent = state.entities.get(ik);
-          ctx.fillStyle =
-            ent?.type === "shrine" ? "#b8f2e6" :
-            ent?.type === "chest" ? "#d9b97a" :
-            ent?.type?.startsWith("key_") ? "#f4d35e" :
-            ent?.type?.startsWith("weapon_") ? "#c2b280" :
-            ent?.type?.startsWith("armor_") ? "#a0a7b8" :
-            "#f4d35e";
-          // slightly larger item block
-          ctx.fillRect(sx * TILE + 4, sy * TILE + 4, TILE - 8, TILE - 8);
-
           const gi = itemGlyph(ent?.type);
           if (gi) drawGlyph(ctx, sx, sy, gi.g, gi.c);
         }
 
         if (mk) {
           const ent = state.entities.get(mk);
-          ctx.fillStyle = ent?.type === "archer" ? "#ffb36b" : "#ff6b6b";
-          // slightly larger monster block
-          ctx.fillRect(sx * TILE + 3, sy * TILE + 3, TILE - 6, TILE - 6);
-
           const gm = monsterGlyph(ent?.type);
           if (gm) drawGlyph(ctx, sx, sy, gm.g, gm.c);
         }
