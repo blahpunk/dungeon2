@@ -1278,9 +1278,11 @@ function dropEquipmentFromChest(state) {
     const key = z <= 4 ? "key_red"
       : z <= 10 ? (Math.random() < 0.6 ? "key_blue" : "key_red")
       : (Math.random() < 0.55 ? "key_green" : "key_blue");
-    invAdd(state, key, 1);
-    pushLog(state, `Found a ${ITEM_TYPES[key].name}!`);
-    placeMatchingLockedDoorNearPlayer(state, key);
+    // Only award a key if we can find/place a matching locked door nearby
+    if (placeMatchingLockedDoorNearPlayer(state, key)) {
+      invAdd(state, key, 1);
+      pushLog(state, `Found a ${ITEM_TYPES[key].name}!`);
+    }
   }
 }
 
@@ -1309,13 +1311,16 @@ function playerAttack(state, monster) {
 
     if (monster.type === "goblin" && Math.random() < 0.30) {
       const key = "key_red";
-      spawnDynamicItem(state, key, 1, monster.x, monster.y, monster.z);
-      pushLog(state, "It dropped a Red Key!");
-      placeMatchingLockedDoorNearPlayer(state, key);
+      if (placeMatchingLockedDoorNearPlayer(state, key)) {
+        spawnDynamicItem(state, key, 1, monster.x, monster.y, monster.z);
+        pushLog(state, "It dropped a Red Key!");
+      }
     } else if (monster.type === "archer" && Math.random() < 0.25) {
       const key = "key_blue";
-      spawnDynamicItem(state, key, 1, monster.x, monster.y, monster.z);
-      pushLog(state, "It dropped a Blue Key!");
+      if (placeMatchingLockedDoorNearPlayer(state, key)) {
+        spawnDynamicItem(state, key, 1, monster.x, monster.y, monster.z);
+        pushLog(state, "It dropped a Blue Key!");
+      }
       placeMatchingLockedDoorNearPlayer(state, key);
     } else if (monster.type === "skeleton" && Math.random() < 0.20) {
       const drop = Math.random() < 0.5 ? "weapon_sword" : "armor_chain";
@@ -1398,9 +1403,13 @@ function pickup(state) {
     invAdd(state, "potion", it.amount ?? 1);
     pushLog(state, "Picked up a Potion.");
   } else if (it.type === "key_red" || it.type === "key_blue" || it.type === "key_green") {
-    invAdd(state, it.type, it.amount ?? 1);
-    pushLog(state, `Picked up a ${ITEM_TYPES[it.type].name}.`);
-    placeMatchingLockedDoorNearPlayer(state, it.type);
+    // Only add the key if a matching locked door exists or can be placed nearby.
+    if (placeMatchingLockedDoorNearPlayer(state, it.type)) {
+      invAdd(state, it.type, it.amount ?? 1);
+      pushLog(state, `Picked up a ${ITEM_TYPES[it.type].name}.`);
+    } else {
+      pushLog(state, "This key doesn't seem to fit anything nearby.");
+    }
   } else if (
     it.type === "weapon_dagger" || it.type === "weapon_sword" || it.type === "weapon_axe" ||
     it.type === "armor_leather" || it.type === "armor_chain" || it.type === "armor_plate"
@@ -2044,7 +2053,7 @@ function placeMatchingLockedDoorNearPlayer(state, keyType) {
       if (state.world.getTile(wx, wy, z) === lockTile) { foundExisting = true; break; }
     }
   }
-  if (foundExisting) return;
+  if (foundExisting) return true;
 
   const minDist = 10;
   const maxDist = 48;
@@ -2062,13 +2071,14 @@ function placeMatchingLockedDoorNearPlayer(state, keyType) {
     }
   }
 
-  if (!candidates.length) return;
+  if (!candidates.length) return false;
 
   candidates.sort((a, b) => a.d - b.d);
   const pick = candidates[Math.floor(candidates.length * 0.65)] ?? candidates[candidates.length - 1];
 
   state.world.setTile(pick.x, pick.y, z, lockTile);
   pushLog(state, `You sense a matching locked door somewhere nearby...`);
+  return true;
 }
 
 // ---------- Save / Load ----------
