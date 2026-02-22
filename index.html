@@ -112,7 +112,7 @@
         image-rendering: auto;
         margin: 0;
 
-        /* Default: fill available width and keep square aspect (landscape/wide view). */
+        /* Default (mobile-first): keep previous square behavior. */
         width: 100%;
         height: auto;
         aspect-ratio: 1 / 1;
@@ -120,6 +120,16 @@
         max-height: 100%;
         box-sizing: border-box;
         object-fit: contain;
+      }
+
+      /* Desktop: allow rectangular viewport to reveal more tiles as window grows. */
+      @media (min-width: 761px) {
+        canvas#c {
+          width: 100%;
+          height: 100%;
+          aspect-ratio: auto;
+          object-fit: contain;
+        }
       }
 
       /* When the viewport is taller than it is wide (portrait), make the
@@ -349,18 +359,19 @@
       }
       #vitalsDisplay {
         margin-bottom: 8px;
-        font-size: 14px;
+        font-size: 18px;
         font-weight: 800;
         color: #ffffff;
         text-shadow: 0 1px 2px rgba(0,0,0,0.6);
       }
       #vitalsDisplay .lbl {
-        opacity: 0.85;
+        opacity: 0.9;
         margin-right: 6px;
+        font-weight: 900;
       }
       #vitalsDisplay .sep {
         opacity: 0.65;
-        margin: 0 8px;
+        margin: 0 10px;
       }
       #depthDisplay {
         margin: 0 0 8px 0;
@@ -498,6 +509,38 @@
       .panel h3 { margin: 0 0 8px 0; font-size: 14px; }
 
       #invList { display: grid; gap: 0; }
+      #equipBadges {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 6px;
+        margin: 0 0 8px 0;
+      }
+      .equipBadge {
+        border: 1px solid #2b3956;
+        background: rgba(34, 48, 76, 0.9);
+        border-radius: 12px;
+        min-height: 54px;
+        padding: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .equipBadgeIcon {
+        width: 28px;
+        height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        line-height: 1;
+        color: #9fb4d8;
+      }
+      .equipBadgeIcon img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        display: block;
+      }
       /* Inventory items are now direct buttons inside #invList */
       #invList > .invLabelBtn {
         display: block;
@@ -690,6 +733,12 @@
           <div id="invOverlay">
             <div id="invPanel">
               <div class="panel" style="background:transparent;border:none;padding:0;">
+                <div id="equipBadges">
+                  <div class="equipBadge"><div class="equipBadgeIcon" id="equipBadgeWeapon"></div></div>
+                  <div class="equipBadge"><div class="equipBadgeIcon" id="equipBadgeHead"></div></div>
+                  <div class="equipBadge"><div class="equipBadgeIcon" id="equipBadgeTorso"></div></div>
+                  <div class="equipBadge"><div class="equipBadgeIcon" id="equipBadgeLegs"></div></div>
+                </div>
                 <div id="invList"></div>
               </div>
             </div>

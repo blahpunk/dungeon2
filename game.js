@@ -7,7 +7,8 @@
 
 const CHUNK = 32;
 const TILE = 256;
-const VIEW_RADIUS = 14;
+const BASE_VIEW_RADIUS = 14;
+const DESKTOP_TARGET_TILE_PX = 42;
 
 const MINI_SCALE = 3;
 const MINI_RADIUS = 40;
@@ -48,6 +49,10 @@ const contextAttackListEl = document.getElementById("contextAttackList");
 const depthDisplayEl = document.getElementById("depthDisplay");
 const invListEl = document.getElementById("invList");
 const equipTextEl = document.getElementById("equipText");
+const equipBadgeWeaponEl = document.getElementById("equipBadgeWeapon");
+const equipBadgeHeadEl = document.getElementById("equipBadgeHead");
+const equipBadgeTorsoEl = document.getElementById("equipBadgeTorso");
+const equipBadgeLegsEl = document.getElementById("equipBadgeLegs");
 const effectsTextEl = document.getElementById("effectsText");
 const deathOverlayEl = document.getElementById("deathOverlay");
 const btnRespawnEl = document.getElementById("btnRespawn");
@@ -73,12 +78,51 @@ const rightColEl = document.getElementById("rightCol");
 const mini = document.getElementById("mini");
 const mctx = mini.getContext("2d");
 
-const viewSize = VIEW_RADIUS * 2 + 1;
-const LOGICAL_CANVAS_SIZE = viewSize * TILE;
 const MAX_RENDER_CANVAS_DIM = 4096;
-const RENDER_SCALE = Math.min(1, MAX_RENDER_CANVAS_DIM / LOGICAL_CANVAS_SIZE);
-canvas.width = Math.max(1, Math.floor(LOGICAL_CANVAS_SIZE * RENDER_SCALE));
-canvas.height = Math.max(1, Math.floor(LOGICAL_CANVAS_SIZE * RENDER_SCALE));
+let viewRadiusX = BASE_VIEW_RADIUS;
+let viewRadiusY = BASE_VIEW_RADIUS;
+let viewTilesX = viewRadiusX * 2 + 1;
+let viewTilesY = viewRadiusY * 2 + 1;
+let renderScale = 1;
+let viewportSig = "";
+
+function isMobileViewport() {
+  const coarse = (typeof window !== "undefined" && window.matchMedia && window.matchMedia("(pointer: coarse)").matches) ||
+    (typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || ""));
+  const narrow = typeof window !== "undefined" ? window.matchMedia("(max-width: 760px)").matches : false;
+  return coarse || narrow;
+}
+function updateViewportMetrics(force = false) {
+  const wrapW = Math.max(1, Math.floor(mainCanvasWrapEl?.clientWidth ?? 0));
+  const wrapH = Math.max(1, Math.floor(mainCanvasWrapEl?.clientHeight ?? 0));
+  const mobile = isMobileViewport();
+  const sig = `${wrapW}x${wrapH}|${mobile}`;
+  if (!force && sig === viewportSig) return false;
+  viewportSig = sig;
+
+  if (mobile || wrapW <= 2 || wrapH <= 2) {
+    viewRadiusX = BASE_VIEW_RADIUS;
+    viewRadiusY = BASE_VIEW_RADIUS;
+  } else {
+    const tilesX = Math.max(BASE_VIEW_RADIUS * 2 + 1, Math.floor(wrapW / DESKTOP_TARGET_TILE_PX));
+    const tilesY = Math.max(BASE_VIEW_RADIUS * 2 + 1, Math.floor(wrapH / DESKTOP_TARGET_TILE_PX));
+    viewRadiusX = Math.floor((tilesX - 1) / 2);
+    viewRadiusY = Math.floor((tilesY - 1) / 2);
+  }
+  viewTilesX = viewRadiusX * 2 + 1;
+  viewTilesY = viewRadiusY * 2 + 1;
+
+  const logicalW = Math.max(1, viewTilesX * TILE);
+  const logicalH = Math.max(1, viewTilesY * TILE);
+  renderScale = Math.min(1, MAX_RENDER_CANVAS_DIM / Math.max(logicalW, logicalH));
+  canvas.width = Math.max(1, Math.floor(logicalW * renderScale));
+  canvas.height = Math.max(1, Math.floor(logicalH * renderScale));
+  return true;
+}
+function viewRadiusForChunks() {
+  return Math.max(viewRadiusX, viewRadiusY) + 2;
+}
+updateViewportMetrics(true);
 
 mini.width = (MINI_RADIUS * 2 + 1) * MINI_SCALE;
 mini.height = (MINI_RADIUS * 2 + 1) * MINI_SCALE;
@@ -1714,6 +1758,43 @@ function renderEquipment(state) {
   const legs = equip.legs ? (ITEM_TYPES[equip.legs]?.name ?? equip.legs) : "(none)";
   equipTextEl.textContent =
     `Weapon: ${w}\nChest:  ${chest}\nLegs:   ${legs}\nATK bonus: ${p.atkBonus >= 0 ? "+" : ""}${p.atkBonus}  DEF: +${p.defBonus}`;
+
+  const setBadge = (el, itemType) => {
+    if (!el) return;
+    const spriteId = itemType ? itemSpriteId({ type: itemType }) : null;
+    const src = spriteId ? SPRITE_SOURCES[spriteId] : null;
+    if (src) {
+      el.innerHTML = "";
+      const img = document.createElement("img");
+      img.src = src;
+      img.alt = "";
+      el.appendChild(img);
+      return;
+    }
+    el.innerHTML = "";
+  };
+
+  setBadge(equipBadgeWeaponEl, equip.weapon ?? null);
+  setBadge(equipBadgeHeadEl, equip.head ?? null);
+  setBadge(equipBadgeTorsoEl, equip.chest ?? null);
+  setBadge(equipBadgeLegsEl, equip.legs ?? null);
+}
+
+function unequipSlotToInventory(state, slot) {
+  if (!state?.player || state.player.dead) return false;
+  const equip = state.player.equip ?? {};
+  const type = equip[slot] ?? null;
+  if (!type) return false;
+
+  equip[slot] = null;
+  invAdd(state, type, 1);
+  pushLog(state, `Removed ${ITEM_TYPES[type]?.name ?? type}.`);
+  recalcDerivedStats(state);
+  renderInventory(state);
+  renderEquipment(state);
+  renderEffects(state);
+  saveNow(state);
+  return true;
 }
 
 function renderEffects(state) {
@@ -1857,7 +1938,7 @@ function placeInitialSurfaceStairs(state) {
 }
 
 function computeInitialDepth0Spawn(world) {
-  world.ensureChunksAround(0, 0, 0, VIEW_RADIUS + 2);
+  world.ensureChunksAround(0, 0, 0, viewRadiusForChunks());
   const ch = world.getChunk(0, 0, 0);
   const target = { x: Math.floor(CHUNK / 2), y: Math.floor(CHUNK / 2) };
   let best = null, bestD = Infinity;
@@ -2034,7 +2115,7 @@ function hydrateChunkEntities(state, z, cx, cy) {
 
 function hydrateNearby(state) {
   const p = state.player;
-  state.world.ensureChunksAround(p.x, p.y, p.z, VIEW_RADIUS + 2);
+  state.world.ensureChunksAround(p.x, p.y, p.z, viewRadiusForChunks());
 
   for (const e of state.dynamic.values()) state.entities.set(e.id, e);
 
@@ -2104,17 +2185,16 @@ function titleCaseLowerLabel(name) {
 
 // ---------- Visibility ----------
 function computeVisibility(state) {
+  updateViewportMetrics();
   const { world, player, seen, visible } = state;
   visible.clear();
 
-  world.ensureChunksAround(player.x, player.y, player.z, VIEW_RADIUS + 2);
+  world.ensureChunksAround(player.x, player.y, player.z, viewRadiusForChunks());
 
-  for (let dy = -VIEW_RADIUS; dy <= VIEW_RADIUS; dy++) {
-    for (let dx = -VIEW_RADIUS; dx <= VIEW_RADIUS; dx++) {
+  for (let dy = -viewRadiusY; dy <= viewRadiusY; dy++) {
+    for (let dx = -viewRadiusX; dx <= viewRadiusX; dx++) {
       const wx = player.x + dx;
       const wy = player.y + dy;
-      const dist2 = dx * dx + dy * dy;
-      if (dist2 > VIEW_RADIUS * VIEW_RADIUS) continue;
 
       if (!fogEnabled) {
         visible.add(keyXY(wx, wy));
@@ -2744,15 +2824,15 @@ function goToLevel(state, newZ, direction) {
 
   if (newZ === SURFACE_LEVEL) {
     // Surface uses a fixed central ladder location.
-    state.world.ensureChunksAround(0, 0, newZ, VIEW_RADIUS + 2);
+    state.world.ensureChunksAround(0, 0, newZ, viewRadiusForChunks());
   } else {
-    state.world.ensureChunksAround(p.x, p.y, newZ, VIEW_RADIUS + 2);
+    state.world.ensureChunksAround(p.x, p.y, newZ, viewRadiusForChunks());
   }
 
   if (direction === "down") {
     if (p.z === SURFACE_LEVEL && newZ === 0) {
       const link = ensureSurfaceLinkTile(state);
-      state.world.ensureChunksAround(link.x, link.y, newZ, VIEW_RADIUS + 2);
+      state.world.ensureChunksAround(link.x, link.y, newZ, viewRadiusForChunks());
       p.x = link.x; p.y = link.y;
 
       // Guarantee at least one escape tile from the return ladder.
@@ -2911,7 +2991,8 @@ function monstersTurn(state) {
     if (e.kind !== "monster") continue;
     if (e.z !== z) continue;
     const dx = e.x - p.x, dy = e.y - p.y;
-    if (dx * dx + dy * dy <= (VIEW_RADIUS + 5) * (VIEW_RADIUS + 5)) toAct.push(e);
+    const actR = Math.max(viewRadiusX, viewRadiusY) + 5;
+    if (dx * dx + dy * dy <= actR * actR) toAct.push(e);
   }
 
   for (const m of toAct) {
@@ -3152,7 +3233,7 @@ function updateSurfaceCompass(state) {
   const link = state.surfaceLink ?? resolveSurfaceLink(state);
   const dx = (link?.x ?? p.x) - p.x;
   const dy = (link?.y ?? p.y) - p.y;
-  const isLadderOnScreen = Math.abs(dx) <= VIEW_RADIUS && Math.abs(dy) <= VIEW_RADIUS;
+  const isLadderOnScreen = Math.abs(dx) <= viewRadiusX && Math.abs(dy) <= viewRadiusY;
   if (isLadderOnScreen) {
     surfaceCompassEl.style.display = "none";
     return;
@@ -3206,12 +3287,12 @@ function draw(state) {
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.setTransform(RENDER_SCALE, 0, 0, RENDER_SCALE, 0, 0);
+  ctx.setTransform(renderScale, 0, 0, renderScale, 0, 0);
 
-  for (let sy = 0; sy < viewSize; sy++) {
-    for (let sx = 0; sx < viewSize; sx++) {
-      const wx = player.x + (sx - VIEW_RADIUS);
-      const wy = player.y + (sy - VIEW_RADIUS);
+  for (let sy = 0; sy < viewTilesY; sy++) {
+    for (let sx = 0; sx < viewTilesX; sx++) {
+      const wx = player.x + (sx - viewRadiusX);
+      const wy = player.y + (sy - viewRadiusY);
 
       const isVisible = visible.has(keyXY(wx, wy));
       const isSeen = seen.has(keyXYZ(wx, wy, player.z));
@@ -3373,8 +3454,8 @@ function draw(state) {
 
   ctx.fillStyle = "#ffffff";
   // Player marker as a circle centered in the tile.
-  const pcx = VIEW_RADIUS * TILE + TILE / 2;
-  const pcy = VIEW_RADIUS * TILE + TILE / 2;
+  const pcx = viewRadiusX * TILE + TILE / 2;
+  const pcy = viewRadiusY * TILE + TILE / 2;
   const prad = Math.max(3, TILE / 2 - 2);
   ctx.beginPath();
   ctx.arc(pcx, pcy, prad, 0, Math.PI * 2);
@@ -3962,6 +4043,17 @@ btnNewDungeonEl?.addEventListener("click", () => {
   game = makeNewGame();
   saveNow(game);
 });
+
+const bindEquipBadgeUnequip = (el, slot) => {
+  el?.addEventListener("click", () => {
+    if (!game) return;
+    unequipSlotToInventory(game, slot);
+  });
+};
+bindEquipBadgeUnequip(equipBadgeWeaponEl, "weapon");
+bindEquipBadgeUnequip(equipBadgeHeadEl, "head");
+bindEquipBadgeUnequip(equipBadgeTorsoEl, "chest");
+bindEquipBadgeUnequip(equipBadgeLegsEl, "legs");
 
 // ---------- Main ----------
 let game = null;
