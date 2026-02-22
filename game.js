@@ -983,26 +983,32 @@ function shopSellPrice(type) {
   return Math.max(1, Math.floor(itemMarketValue(type) * 0.25));
 }
 
+function shopProgressScore(state) {
+  const depthScore = Math.max(0, state.player.z);
+  const levelScore = Math.max(0, Math.floor((state.player.level - 1) * 0.9));
+  return depthScore + levelScore;
+}
+
 function shopCatalogForDepth(depth) {
   const d = Math.max(0, depth);
-  const items = [{ type: "potion", w: 10 }];
+  const items = [{ type: "potion", w: 12 }];
 
   for (const kind of WEAPON_KINDS) {
-    items.push({ type: weaponType("bronze", kind), w: 9 });
+    items.push({ type: weaponType("bronze", kind), w: d <= 2 ? 12 : d <= 5 ? 9 : 6 });
   }
   for (const slot of ARMOR_SLOTS) {
-    items.push({ type: armorType("leather", slot), w: 8 });
+    items.push({ type: armorType("leather", slot), w: d <= 2 ? 11 : d <= 5 ? 8 : 5 });
   }
 
-  const ironWeight = d <= 0 ? 0 : d <= 2 ? 4 : 6;
+  const ironWeight = d <= 0 ? 0 : d <= 2 ? 6 : d <= 6 ? 10 : 14;
   for (const kind of WEAPON_KINDS) {
     if (ironWeight > 0) items.push({ type: weaponType("iron", kind), w: ironWeight });
   }
   for (const slot of ARMOR_SLOTS) {
-    if (ironWeight > 0) items.push({ type: armorType("iron", slot), w: Math.max(1, ironWeight - 1) });
+    if (ironWeight > 0) items.push({ type: armorType("iron", slot), w: Math.max(1, ironWeight - 2) });
   }
 
-  const steelWeight = d < 3 ? 0 : d < 6 ? 2 : d < 10 ? 3 : 5;
+  const steelWeight = d < 3 ? 0 : d < 6 ? 4 : d < 10 ? 8 : 12;
   if (steelWeight > 0) {
     for (const kind of WEAPON_KINDS) {
       items.push({ type: weaponType("steel", kind), w: steelWeight });
@@ -1036,15 +1042,20 @@ function drawUniqueWeightedItems(rng, weightedItems, count) {
   return out;
 }
 
+function buildShopStockEntry(type, depth) {
+  const amount = type === "potion" ? randInt(Math.random, 1, 5) : 1;
+  return { type, price: shopBuyPrice(type, depth), amount };
+}
+
 function ensureShopState(state) {
   if (state.shop) return;
   const now = Date.now();
-  const depth = Math.max(0, state.player.z) + Math.floor((state.player.level - 1) / 2);
+  const depth = shopProgressScore(state);
   const catalog = shopCatalogForDepth(depth);
-  const size = clamp(7 + Math.floor(depth / 4), 7, Math.min(12, catalog.length));
+  const size = clamp(10 + Math.floor(depth / 2), 10, Math.min(17, catalog.length));
   const types = drawUniqueWeightedItems(Math.random, catalog, size);
   state.shop = {
-    stock: types.map((type) => ({ type, price: shopBuyPrice(type, depth) })),
+    stock: types.map((type) => buildShopStockEntry(type, depth)),
     lastRefreshMs: now,
     nextRefreshMs: now + randInt(Math.random, 5, 15) * 60 * 1000,
   };
@@ -1055,9 +1066,9 @@ function refreshShopStock(state, force = false) {
   const now = Date.now();
   if (!force && now < (state.shop?.nextRefreshMs ?? 0)) return false;
 
-  const depth = Math.max(0, state.player.z) + Math.floor((state.player.level - 1) / 2);
+  const depth = shopProgressScore(state);
   const catalog = shopCatalogForDepth(depth);
-  const targetCount = clamp(7 + Math.floor(depth / 4), 7, Math.min(12, catalog.length));
+  const targetCount = clamp(10 + Math.floor(depth / 2), 10, Math.min(17, catalog.length));
   let nextTypes = (state.shop?.stock ?? []).map((s) => s.type).slice(0, targetCount);
 
   if (nextTypes.length < targetCount) {
@@ -1083,7 +1094,7 @@ function refreshShopStock(state, force = false) {
     }
   }
 
-  state.shop.stock = nextTypes.map((type) => ({ type, price: shopBuyPrice(type, depth) }));
+  state.shop.stock = nextTypes.map((type) => buildShopStockEntry(type, depth));
   state.shop.lastRefreshMs = now;
   state.shop.nextRefreshMs = now + randInt(Math.random, 5, 15) * 60 * 1000;
   return true;
@@ -1175,7 +1186,7 @@ function renderShopOverlay(state) {
       btn.type = "button";
       btn.className = `shopItemBtn${idx === selectedIdx ? " active" : ""}`;
       const nm = ITEM_TYPES[entry.type]?.name ?? entry.type;
-      if (isBuyMode) btn.textContent = `${idx + 1}. ${nm} - ${entry.price}g`;
+      if (isBuyMode) btn.textContent = `${idx + 1}. ${nm} x${Math.max(1, entry.amount ?? 1)} - ${entry.price}g`;
       else btn.textContent = `${idx + 1}. ${nm} x${entry.amount} - ${entry.price}g`;
       btn.addEventListener("click", () => {
         if (isBuyMode) shopUi.selectedBuy = idx;
@@ -1205,6 +1216,7 @@ function renderShopOverlay(state) {
   if (def > 0) details.push(`DEF Bonus: +${def}`);
   if (!atk && !def && selected.type === "potion") details.push("Consumable healing item.");
   if (!atk && !def && selected.type !== "potion") details.push("Utility item.");
+  if (isBuyMode) details.push(`Stock: ${Math.max(1, selected.amount ?? 1)}`);
   if (!isBuyMode) details.push(`Inventory: ${selected.amount}`);
   details.push(`Value: ${itemMarketValue(selected.type)}g`);
 
@@ -1215,22 +1227,37 @@ function renderShopOverlay(state) {
   }
   if (!shopActionBtnEl) return;
   shopActionBtnEl.textContent = isBuyMode ? "Buy Selected" : "Sell One";
-  shopActionBtnEl.disabled = isBuyMode ? state.player.gold < selected.price : selected.amount <= 0;
+  shopActionBtnEl.disabled = !selected || (!isBuyMode && selected.amount <= 0);
   shopActionBtnEl.onclick = () => {
-    if (isBuyMode) {
-      if (state.player.gold < selected.price) {
+    const currentStock = state.shop?.stock ?? [];
+    const currentSellable = getSellableInventory(state);
+    const liveIsBuyMode = shopUi.mode === "buy";
+    const liveEntries = liveIsBuyMode ? currentStock : currentSellable;
+    const liveIndex = liveIsBuyMode ? shopUi.selectedBuy : shopUi.selectedSell;
+    const liveSelected = liveEntries[liveIndex] ?? null;
+    if (!liveSelected) return;
+    const liveSelectedName = ITEM_TYPES[liveSelected.type]?.name ?? liveSelected.type;
+
+    if (liveIsBuyMode) {
+      if (state.player.gold < liveSelected.price) {
         pushLog(state, "Not enough gold.");
       } else {
-        state.player.gold -= selected.price;
-        invAdd(state, selected.type, 1);
-        pushLog(state, `Bought ${selectedName} for ${selected.price} gold.`);
+        state.player.gold -= liveSelected.price;
+        invAdd(state, liveSelected.type, 1);
+        const left = Math.max(0, (liveSelected.amount ?? 1) - 1);
+        liveSelected.amount = left;
+        if (left <= 0) {
+          currentStock.splice(liveIndex, 1);
+          if (shopUi.selectedBuy >= currentStock.length) shopUi.selectedBuy = Math.max(0, currentStock.length - 1);
+        }
+        pushLog(state, `Bought ${liveSelectedName} for ${liveSelected.price} gold.`);
       }
     } else {
-      if (!invConsume(state, selected.type, 1)) {
+      if (!invConsume(state, liveSelected.type, 1)) {
         pushLog(state, "Couldn't complete that sale.");
       } else {
-        state.player.gold += selected.price;
-        pushLog(state, `Sold ${selectedName} for ${selected.price} gold.`);
+        state.player.gold += liveSelected.price;
+        pushLog(state, `Sold ${liveSelectedName} for ${liveSelected.price} gold.`);
       }
     }
     recalcDerivedStats(state);
@@ -3997,7 +4024,12 @@ function importSave(saveStr) {
     ensureSurfaceLinkTile(state);
     if (state.shop && Array.isArray(state.shop.stock)) {
       state.shop.stock = state.shop.stock
-        .map((s) => ({ type: normalizeItemType(s?.type), price: Math.max(1, Math.floor(s?.price ?? 0)) }))
+        .map((s) => {
+          const type = normalizeItemType(s?.type);
+          const amountRaw = Math.max(1, Math.floor(s?.amount ?? 1));
+          const amount = type === "potion" ? Math.min(5, amountRaw) : 1;
+          return { type, price: Math.max(1, Math.floor(s?.price ?? 0)), amount };
+        })
         .filter((s) => ITEM_TYPES[s.type]);
       state.shop.lastRefreshMs = Number.isFinite(state.shop.lastRefreshMs) ? state.shop.lastRefreshMs : Date.now();
       state.shop.nextRefreshMs = Number.isFinite(state.shop.nextRefreshMs) ? state.shop.nextRefreshMs : Date.now();
