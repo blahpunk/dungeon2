@@ -53,6 +53,10 @@ const equipBadgeWeaponEl = document.getElementById("equipBadgeWeapon");
 const equipBadgeHeadEl = document.getElementById("equipBadgeHead");
 const equipBadgeTorsoEl = document.getElementById("equipBadgeTorso");
 const equipBadgeLegsEl = document.getElementById("equipBadgeLegs");
+const equipSectionToggleEl = document.getElementById("equipSectionToggle");
+const inventorySectionToggleEl = document.getElementById("inventorySectionToggle");
+const equipSectionBodyEl = document.getElementById("equipSectionBody");
+const inventorySectionBodyEl = document.getElementById("inventorySectionBody");
 const effectsTextEl = document.getElementById("effectsText");
 const deathOverlayEl = document.getElementById("deathOverlay");
 const btnRespawnEl = document.getElementById("btnRespawn");
@@ -67,6 +71,11 @@ const shopListEl = document.getElementById("shopList");
 const shopDetailTitleEl = document.getElementById("shopDetailTitle");
 const shopDetailBodyEl = document.getElementById("shopDetailBody");
 const shopActionBtnEl = document.getElementById("shopActionBtn");
+const debugMenuWrapEl = document.getElementById("debugMenuWrap");
+const btnDebugMenuEl = document.getElementById("btnDebugMenu");
+const debugMenuEl = document.getElementById("debugMenu");
+const toggleGodmodeEl = document.getElementById("toggleGodmode");
+const toggleFreeShoppingEl = document.getElementById("toggleFreeShopping");
 const mainCanvasWrapEl = document.getElementById("mainCanvasWrap");
 const surfaceCompassEl = document.getElementById("surfaceCompass");
 const surfaceCompassArrowEl = document.getElementById("surfaceCompassArrow");
@@ -130,10 +139,57 @@ mini.height = (MINI_RADIUS * 2 + 1) * MINI_SCALE;
 let fogEnabled = true;
 let minimapEnabled = true;
 const shopUi = { open: false, mode: "buy", selectedBuy: 0, selectedSell: 0 };
+const overlaySections = { equipmentCollapsed: false, inventoryCollapsed: false };
 let contextAuxSignature = "";
 const MOBILE_VISIBILITY_BOOST =
   (typeof window !== "undefined" && window.matchMedia && window.matchMedia("(pointer: coarse)").matches) ||
   (typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || ""));
+
+function normalizeDebugFlags(flags) {
+  return {
+    godmode: !!flags?.godmode,
+    freeShopping: !!flags?.freeShopping,
+  };
+}
+function stateDebug(state) {
+  state.debug = normalizeDebugFlags(state?.debug);
+  return state.debug;
+}
+function setDebugMenuOpen(open) {
+  if (!debugMenuEl) return;
+  debugMenuEl.classList.toggle("show", !!open);
+  debugMenuEl.setAttribute("aria-hidden", open ? "false" : "true");
+  if (btnDebugMenuEl) btnDebugMenuEl.setAttribute("aria-expanded", open ? "true" : "false");
+}
+function updateDebugMenuUi(state) {
+  const d = normalizeDebugFlags(state?.debug);
+  if (toggleGodmodeEl) toggleGodmodeEl.checked = d.godmode;
+  if (toggleFreeShoppingEl) toggleFreeShoppingEl.checked = d.freeShopping;
+}
+function setDebugFlag(state, key, enabled) {
+  const d = stateDebug(state);
+  const next = !!enabled;
+  if (d[key] === next) return;
+  d[key] = next;
+  if (key === "godmode") pushLog(state, `Godmode ${next ? "enabled" : "disabled"}.`);
+  if (key === "freeShopping") pushLog(state, `Free shopping ${next ? "enabled" : "disabled"}.`);
+  saveNow(state);
+}
+
+function updateOverlaySectionUi() {
+  const equipCollapsed = !!overlaySections.equipmentCollapsed;
+  const invCollapsed = !!overlaySections.inventoryCollapsed;
+  equipSectionBodyEl?.classList.toggle("hidden", equipCollapsed);
+  inventorySectionBodyEl?.classList.toggle("hidden", invCollapsed);
+  if (equipSectionToggleEl) {
+    equipSectionToggleEl.textContent = `Equipment ${equipCollapsed ? "+" : "-"}`;
+    equipSectionToggleEl.setAttribute("aria-expanded", equipCollapsed ? "false" : "true");
+  }
+  if (inventorySectionToggleEl) {
+    inventorySectionToggleEl.textContent = `Inventory ${invCollapsed ? "+" : "-"}`;
+    inventorySectionToggleEl.setAttribute("aria-expanded", invCollapsed ? "false" : "true");
+  }
+}
 
 // ---------- RNG (deterministic base gen) ----------
 function xmur3(str) {
@@ -1293,7 +1349,10 @@ function renderShopOverlay(state) {
 
   if (shopDetailTitleEl) shopDetailTitleEl.textContent = selectedName;
   if (shopDetailBodyEl) {
-    const actionLine = isBuyMode ? `Buy price: ${selected.price}g` : `Sell price: ${selected.price}g`;
+    const freeShopping = !!stateDebug(state).freeShopping;
+    const actionLine = isBuyMode
+      ? (freeShopping ? "Buy price: FREE" : `Buy price: ${selected.price}g`)
+      : `Sell price: ${selected.price}g`;
     shopDetailBodyEl.textContent = `${details.join("\n")}\n${actionLine}`;
   }
   if (!shopActionBtnEl) return;
@@ -1310,10 +1369,11 @@ function renderShopOverlay(state) {
     const liveSelectedName = ITEM_TYPES[liveSelected.type]?.name ?? liveSelected.type;
 
     if (liveIsBuyMode) {
-      if (state.player.gold < liveSelected.price) {
+      const freeShopping = !!stateDebug(state).freeShopping;
+      if (!freeShopping && state.player.gold < liveSelected.price) {
         pushLog(state, "Not enough gold.");
       } else {
-        state.player.gold -= liveSelected.price;
+        if (!freeShopping) state.player.gold -= liveSelected.price;
         invAdd(state, liveSelected.type, 1);
         const left = Math.max(0, (liveSelected.amount ?? 1) - 1);
         liveSelected.amount = left;
@@ -1321,7 +1381,8 @@ function renderShopOverlay(state) {
           currentStock.splice(liveIndex, 1);
           if (shopUi.selectedBuy >= currentStock.length) shopUi.selectedBuy = Math.max(0, currentStock.length - 1);
         }
-        pushLog(state, `Bought ${liveSelectedName} for ${liveSelected.price} gold.`);
+        if (freeShopping) pushLog(state, `Bought ${liveSelectedName} for free.`);
+        else pushLog(state, `Bought ${liveSelectedName} for ${liveSelected.price} gold.`);
       }
     } else {
       if (!invConsume(state, liveSelected.type, 1)) {
@@ -1547,7 +1608,13 @@ function resolveContextAction(state, occupancy = null) {
   const attackTarget = getAdjacentMonsterTarget(state, occ);
   if (attackTarget) {
     const nm = MONSTER_TYPES[attackTarget.type]?.name ?? attackTarget.type;
-    return { type: "attack", targetMonsterId: attackTarget.id, label: `Attack ${nm}`, run: () => attackMonsterById(state, attackTarget.id) };
+    return {
+      type: "attack",
+      targetMonsterId: attackTarget.id,
+      monsterType: attackTarget.type,
+      label: `Attack ${nm}`,
+      run: () => attackMonsterById(state, attackTarget.id),
+    };
   }
   const itemsHere = getItemsAt(state, p.x, p.y, p.z);
   if (itemsHere.length) {
@@ -1559,7 +1626,12 @@ function resolveContextAction(state, occupancy = null) {
       const target = takeable[0];
       const nm = titleCaseLowerLabel(ITEM_TYPES[target.type]?.name ?? target.type);
       const more = takeable.length > 1 ? ` (+${takeable.length - 1} more)` : "";
-      return { type: "pickup", label: `Take ${nm}${more}`, run: () => pickup(state) };
+      return {
+        type: "pickup",
+        pickupType: target.type,
+        label: `Take ${nm}${more}`,
+        run: () => pickup(state),
+      };
     }
 
     const shrine = itemsHere.find((e) => e.type === "shrine");
@@ -1635,19 +1707,101 @@ function attackMonsterById(state, monsterId) {
   return true;
 }
 
+function iconSpecForItemType(type) {
+  if (!type) return null;
+  const spriteId = itemSpriteId({ type });
+  if (spriteId && SPRITE_SOURCES[spriteId]) return { spriteId };
+  const glyphInfo = itemGlyph(type);
+  if (glyphInfo) return { glyph: glyphInfo.g, color: glyphInfo.c };
+  return null;
+}
+
+function iconSpecForMonsterType(type) {
+  if (!type) return null;
+  const spriteId = monsterSpriteId(type);
+  if (spriteId && SPRITE_SOURCES[spriteId]) return { spriteId };
+  const glyphInfo = monsterGlyph(type);
+  if (glyphInfo) return { glyph: glyphInfo.g, color: glyphInfo.c };
+  return null;
+}
+
+function iconSpecForContextAction(state, action) {
+  if (!action) return null;
+  if (action.type === "attack") {
+    const mType = action.monsterType ?? state.entities.get(action.targetMonsterId)?.type ?? null;
+    return iconSpecForMonsterType(mType);
+  }
+  if (action.type === "pickup") {
+    return iconSpecForItemType(action.pickupType ?? null);
+  }
+  if (action.type === "shop") return iconSpecForItemType("shopkeeper");
+  if (action.type === "shrine") return iconSpecForItemType("shrine");
+  if (action.type === "open-door") {
+    const g = tileGlyph(DOOR_CLOSED);
+    return g ? { glyph: g.g, color: g.c } : null;
+  }
+  if (action.type === "close-door") {
+    const g = tileGlyph(DOOR_OPEN);
+    return g ? { glyph: g.g, color: g.c } : null;
+  }
+  if (action.type === "stairs-up") {
+    if (state.player.z === 0) return { spriteId: "surface_entrance" };
+    const g = tileGlyph(STAIRS_UP);
+    return g ? { glyph: g.g, color: g.c } : null;
+  }
+  if (action.type === "stairs-down") {
+    if (state.player.z === SURFACE_LEVEL) return { spriteId: "surface_entrance" };
+    const g = tileGlyph(STAIRS_DOWN);
+    return g ? { glyph: g.g, color: g.c } : null;
+  }
+  return null;
+}
+
+function setContextButtonContent(btn, label, iconSpec = null) {
+  if (!btn) return;
+  btn.innerHTML = "";
+  const content = document.createElement("span");
+  content.className = "contextBtnContent";
+
+  if (iconSpec) {
+    const iconWrap = document.createElement("span");
+    iconWrap.className = "contextBtnIcon";
+    if (iconSpec.spriteId && SPRITE_SOURCES[iconSpec.spriteId]) {
+      const img = document.createElement("img");
+      img.src = SPRITE_SOURCES[iconSpec.spriteId];
+      img.alt = "";
+      iconWrap.appendChild(img);
+    } else if (iconSpec.glyph) {
+      const glyph = document.createElement("span");
+      glyph.className = "contextBtnGlyph";
+      glyph.textContent = iconSpec.glyph;
+      if (iconSpec.color) glyph.style.color = iconSpec.color;
+      iconWrap.appendChild(glyph);
+    }
+    if (iconWrap.childNodes.length) content.appendChild(iconWrap);
+  }
+
+  const text = document.createElement("span");
+  text.className = "contextBtnText";
+  text.textContent = label;
+  content.appendChild(text);
+
+  btn.appendChild(content);
+}
+
 function updateContextActionButton(state, occupancy = null) {
   if (!contextActionBtn) return;
   const action = resolveContextAction(state, occupancy);
   if (!action) {
     contextActionBtn.disabled = true;
-    contextActionBtn.textContent = "No Action";
+    setContextButtonContent(contextActionBtn, "No Action", null);
     contextActionBtn.dataset.actionType = "none";
     updatePotionContextButton(state);
     updateAttackContextButtons(state, occupancy, null);
     return;
   }
   contextActionBtn.disabled = false;
-  contextActionBtn.textContent = action.label;
+  setContextButtonContent(contextActionBtn, action.label, iconSpecForContextAction(state, action));
   contextActionBtn.dataset.actionType = action.type;
 
   updatePotionContextButton(state);
@@ -1685,6 +1839,7 @@ function updatePotionContextButton(state) {
   }
   contextPotionBtn.style.display = "";
   contextPotionBtn.disabled = false;
+  setContextButtonContent(contextPotionBtn, "Use Potion", iconSpecForItemType("potion"));
 }
 
 function buildAuxContextActions(state, occupancy = null, primaryAction = null) {
@@ -1715,6 +1870,7 @@ function buildAuxContextActions(state, occupancy = null, primaryAction = null) {
     const nm = MONSTER_TYPES[entry.monster.type]?.name ?? entry.monster.type;
     actions.push({
       id: `aux|attack|${id}`,
+      monsterType: entry.monster.type,
       label: `Attack ${nm} (${entry.dir})`,
       run: () => attackMonsterById(state, id),
     });
@@ -1738,6 +1894,7 @@ function buildAuxContextActions(state, occupancy = null, primaryAction = null) {
       const more = takeable.length > 1 ? ` (+${takeable.length - 1} more)` : "";
       actions.push({
         id: `aux|pickup|${target.type}|${takeable.length}`,
+        pickupType: target.type,
         label: `Take ${nm}${more}`,
         run: () => pickup(state),
       });
@@ -1777,7 +1934,7 @@ function updateAttackContextButtons(state, occupancy = null, primaryAction = nul
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "contextAttackBtn";
-    btn.textContent = action.label;
+    setContextButtonContent(btn, action.label, iconSpecForContextAction(state, action));
     btn.addEventListener("click", () => {
       takeTurn(state, action.run());
     });
@@ -1852,26 +2009,44 @@ function recalcDerivedStats(state) {
 function renderEquipment(state) {
   const p = state.player;
   const equip = p.equip ?? {};
-  const w = equip.weapon ? (ITEM_TYPES[equip.weapon]?.name ?? equip.weapon) : "(none)";
-  const head = equip.head ? (ITEM_TYPES[equip.head]?.name ?? equip.head) : "(none)";
-  const chest = equip.chest ? (ITEM_TYPES[equip.chest]?.name ?? equip.chest) : "(none)";
-  const legs = equip.legs ? (ITEM_TYPES[equip.legs]?.name ?? equip.legs) : "(none)";
-  equipTextEl.textContent =
-    `Weapon: ${w}\nHead:   ${head}\nChest:  ${chest}\nLegs:   ${legs}\nATK bonus: ${p.atkBonus >= 0 ? "+" : ""}${p.atkBonus}  DEF: +${p.defBonus}`;
+  if (equipTextEl) {
+    const w = equip.weapon ? (ITEM_TYPES[equip.weapon]?.name ?? equip.weapon) : "(none)";
+    const head = equip.head ? (ITEM_TYPES[equip.head]?.name ?? equip.head) : "(none)";
+    const chest = equip.chest ? (ITEM_TYPES[equip.chest]?.name ?? equip.chest) : "(none)";
+    const legs = equip.legs ? (ITEM_TYPES[equip.legs]?.name ?? equip.legs) : "(none)";
+    equipTextEl.textContent =
+      `Weapon: ${w}\nHead:   ${head}\nChest:  ${chest}\nLegs:   ${legs}\nATK bonus: ${p.atkBonus >= 0 ? "+" : ""}${p.atkBonus}  DEF: +${p.defBonus}`;
+  }
 
   const setBadge = (el, itemType) => {
     if (!el) return;
-    const spriteId = itemType ? itemSpriteId({ type: itemType }) : null;
+    el.innerHTML = "";
+    if (!itemType) return;
+
+    const appendGlyph = () => {
+      const glyphInfo = itemGlyph(itemType);
+      const glyph = document.createElement("span");
+      glyph.className = "equipBadgeGlyph";
+      glyph.textContent = glyphInfo?.g ?? "?";
+      glyph.style.color = glyphInfo?.c ?? "#d6e4ff";
+      el.appendChild(glyph);
+    };
+
+    const spriteId = itemSpriteId({ type: itemType });
     const src = spriteId ? SPRITE_SOURCES[spriteId] : null;
-    if (src) {
-      el.innerHTML = "";
-      const img = document.createElement("img");
-      img.src = src;
-      img.alt = "";
-      el.appendChild(img);
+    if (!src) {
+      appendGlyph();
       return;
     }
-    el.innerHTML = "";
+
+    const img = document.createElement("img");
+    img.src = src;
+    img.alt = ITEM_TYPES[itemType]?.name ?? itemType;
+    img.onerror = () => {
+      el.innerHTML = "";
+      appendGlyph();
+    };
+    el.appendChild(img);
   };
 
   setBadge(equipBadgeWeaponEl, equip.weapon ?? null);
@@ -1966,8 +2141,15 @@ function getInventoryDisplayEntries(state) {
     item,
     invIndex,
     priority: item.type === "potion" ? 0 : 1,
+    value: itemMarketValue(item.type),
+    name: ITEM_TYPES[item.type]?.name ?? item.type,
   }));
-  entries.sort((a, b) => (a.priority - b.priority) || (a.invIndex - b.invIndex));
+  entries.sort((a, b) =>
+    (a.priority - b.priority) ||
+    (b.value - a.value) ||
+    a.name.localeCompare(b.name) ||
+    (a.invIndex - b.invIndex)
+  );
   return entries;
 }
 
@@ -2117,6 +2299,7 @@ function makeNewGame(seedStr = randomSeedString()) {
     surfaceLink: null,
     startSpawn: null,
     shop: null,
+    debug: normalizeDebugFlags(),
   };
   const start = computeInitialDepth0Spawn(world);
   state.startSpawn = start;
@@ -3121,6 +3304,11 @@ function monsterHitPlayer(state, monster, baseDmgLo, baseDmgHi, verb = "hits") {
   // Depth 0 rats must never hit harder than 100
   if (monster.type === 'rat' && depth === 0) raw = Math.min(raw, 100);
 
+  if (stateDebug(state).godmode) {
+    pushLog(state, `The ${nm} ${verb} you, but no damage gets through.`);
+    return;
+  }
+
   const dmg = reduceIncomingDamage(state, raw);
   state.player.hp -= dmg;
   pushLog(state, `The ${nm} ${verb} you for ${dmg}.`);
@@ -3930,6 +4118,7 @@ function exportSave(state) {
     surfaceLink: state.surfaceLink ?? null,
     startSpawn: state.startSpawn ?? null,
     shop: state.shop ?? null,
+    debug: normalizeDebugFlags(state.debug),
   };
 
   return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
@@ -4091,6 +4280,7 @@ function importSave(saveStr) {
       surfaceLink: payload.surfaceLink ?? null,
       startSpawn: payload.startSpawn ?? null,
       shop: payload.shop ?? null,
+      debug: normalizeDebugFlags(payload.debug),
     };
 
     fogEnabled = !!payload.fog;
@@ -4122,6 +4312,7 @@ function importSave(saveStr) {
     } else {
       state.shop = null;
     }
+    state.debug = normalizeDebugFlags(state.debug);
     ensureShopState(state);
 
     recalcDerivedStats(state);
@@ -4164,6 +4355,8 @@ document.getElementById("btnNew").addEventListener("click", () => {
   if (!confirmNewRun()) return;
   closeShopOverlay();
   game = makeNewGame();
+  updateDebugMenuUi(game);
+  setDebugMenuOpen(false);
   saveNow(game);
 });
 
@@ -4178,6 +4371,8 @@ document.getElementById("btnReset").addEventListener("click", () => {
   localStorage.removeItem(SAVE_KEY);
   closeShopOverlay();
   game = makeNewGame();
+  updateDebugMenuUi(game);
+  setDebugMenuOpen(false);
   saveNow(game);
 });
 
@@ -4194,9 +4389,39 @@ document.getElementById("btnImport").addEventListener("click", () => {
   if (!loaded) return alert("Invalid save.");
   closeShopOverlay();
   game = loaded;
+  updateDebugMenuUi(game);
+  setDebugMenuOpen(false);
   updateContextActionButton(game);
   updateDeathOverlay(game);
   saveNow(game);
+});
+btnDebugMenuEl?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  if (game) updateDebugMenuUi(game);
+  const open = !(debugMenuEl?.classList.contains("show"));
+  setDebugMenuOpen(open);
+});
+debugMenuEl?.addEventListener("click", (e) => {
+  e.stopPropagation();
+});
+document.addEventListener("click", (e) => {
+  if (!debugMenuWrapEl) return;
+  if (debugMenuWrapEl.contains(e.target)) return;
+  setDebugMenuOpen(false);
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") setDebugMenuOpen(false);
+});
+toggleGodmodeEl?.addEventListener("change", () => {
+  if (!game) return;
+  setDebugFlag(game, "godmode", !!toggleGodmodeEl.checked);
+  updateDebugMenuUi(game);
+});
+toggleFreeShoppingEl?.addEventListener("change", () => {
+  if (!game) return;
+  setDebugFlag(game, "freeShopping", !!toggleFreeShoppingEl.checked);
+  updateDebugMenuUi(game);
+  if (shopUi.open) renderShopOverlay(game);
 });
 shopCloseBtnEl?.addEventListener("click", () => {
   closeShopOverlay();
@@ -4233,6 +4458,8 @@ btnNewDungeonEl?.addEventListener("click", () => {
   if (!confirmNewDungeonFromDeath()) return;
   closeShopOverlay();
   game = makeNewGame();
+  updateDebugMenuUi(game);
+  setDebugMenuOpen(false);
   saveNow(game);
 });
 
@@ -4246,6 +4473,14 @@ bindEquipBadgeUnequip(equipBadgeWeaponEl, "weapon");
 bindEquipBadgeUnequip(equipBadgeHeadEl, "head");
 bindEquipBadgeUnequip(equipBadgeTorsoEl, "chest");
 bindEquipBadgeUnequip(equipBadgeLegsEl, "legs");
+equipSectionToggleEl?.addEventListener("click", () => {
+  overlaySections.equipmentCollapsed = !overlaySections.equipmentCollapsed;
+  updateOverlaySectionUi();
+});
+inventorySectionToggleEl?.addEventListener("click", () => {
+  overlaySections.inventoryCollapsed = !overlaySections.inventoryCollapsed;
+  updateOverlaySectionUi();
+});
 
 // ---------- Main ----------
 let game = null;
@@ -4267,6 +4502,8 @@ window.addEventListener("unhandledrejection", (e) => showFatal(e.reason ?? e));
 
 try {
   game = loadSaveOrNew();
+  updateOverlaySectionUi();
+  updateDebugMenuUi(game);
   updateContextActionButton(game);
   updateDeathOverlay(game);
   renderInventory(game);

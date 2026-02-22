@@ -39,6 +39,40 @@
         opacity: 0.9;
         white-space: nowrap;
       }
+      #debugMenuWrap {
+        position: relative;
+      }
+      #debugMenu {
+        position: absolute;
+        top: calc(100% + 8px);
+        right: 0;
+        min-width: 210px;
+        background: #101a2b;
+        border: 1px solid #27314a;
+        border-radius: 10px;
+        padding: 8px 10px;
+        display: none;
+        z-index: 1800;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+      }
+      #debugMenu.show {
+        display: block;
+      }
+      .debugToggle {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        font-size: 13px;
+        padding: 6px 2px;
+        cursor: pointer;
+        user-select: none;
+      }
+      .debugToggle input {
+        width: 16px;
+        height: 16px;
+        accent-color: #5ca7ff;
+      }
       button {
         background: #182032;
         color: #e6e6e6;
@@ -167,6 +201,23 @@
       }
       #invOverlay .panel { background: transparent; border: none; padding: 0; }
       #invOverlay h3 { margin: 0 0 6px 0; font-size: 13px; }
+      #invSections {
+        display: grid;
+        gap: 4px;
+      }
+      .invSectionToggle {
+        width: 100%;
+        text-align: left;
+        font-size: 12px;
+        font-weight: 700;
+        padding: 4px 8px;
+        border-radius: 8px;
+        background: rgba(20, 30, 48, 0.82);
+        border: 1px solid #2b3956;
+      }
+      .invSectionBody.hidden {
+        display: none;
+      }
 
       #metaWrap { position: absolute; top: 12px; right: 12px; z-index: 1300; pointer-events: none; display:flex; flex-direction:column; align-items:flex-end }
       #logTitle { display: none; }
@@ -388,6 +439,7 @@
         border-radius: 10px;
         padding: 8px 10px;
         font-size: 13px;
+        text-align: left;
       }
       #contextPotionBtn {
         width: auto;
@@ -396,6 +448,7 @@
         border-radius: 10px;
         padding: 8px 10px;
         font-size: 13px;
+        text-align: left;
       }
       #contextActionBtn:disabled {
         opacity: 0.55;
@@ -423,6 +476,35 @@
         padding: 8px 10px;
         font-size: 13px;
         text-align: left;
+      }
+      .contextBtnContent {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        max-width: 100%;
+      }
+      .contextBtnIcon {
+        width: 18px;
+        height: 18px;
+        flex: 0 0 18px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .contextBtnIcon img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        display: block;
+      }
+      .contextBtnGlyph {
+        font-size: 16px;
+        line-height: 1;
+        font-weight: 800;
+      }
+      .contextBtnText {
+        min-width: 0;
+        line-height: 1.2;
       }
       #surfaceCompass {
         position: absolute;
@@ -519,34 +601,66 @@
         border: 1px solid #2b3956;
         background: rgba(34, 48, 76, 0.9);
         border-radius: 12px;
-        min-height: 54px;
-        padding: 4px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        min-height: 0;
+        padding: 3px;
+        display: grid;
+        grid-template-rows: minmax(0, 1fr) auto;
+        align-content: stretch;
+        justify-items: stretch;
+        gap: 2px;
+        overflow: hidden;
       }
       .equipBadgeIcon {
-        width: 28px;
-        height: 28px;
+        position: relative;
+        width: 100%;
+        height: auto;
+        aspect-ratio: 1 / 1;
+        min-height: 0;
+        min-width: 0;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 12px;
+        font-size: 30px;
         line-height: 1;
         color: #9fb4d8;
+        overflow: hidden;
       }
       .equipBadgeIcon img {
+        position: absolute;
+        inset: 0;
         width: 100%;
         height: 100%;
+        max-width: 100%;
+        max-height: 100%;
         object-fit: contain;
         display: block;
+      }
+      .equipBadgeGlyph {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 30px;
+        font-weight: 800;
+        line-height: 1;
+      }
+      .equipBadgeLabel {
+        text-align: center;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.25px;
+        color: #d6e4ff;
+        opacity: 0.92;
+        line-height: 1;
+        white-space: nowrap;
       }
       /* Inventory items are now direct buttons inside #invList */
       #invList > .invLabelBtn {
         display: block;
         width: 100%;
         text-align: left;
-        padding: 8px 4px; /* keep a comfortable tap target */
+        padding: 0 4px;
         margin: 0;
         border: none;
         background: transparent; /* fully transparent */
@@ -720,6 +834,19 @@
       <button id="btnReset">Hard reset</button>
       <button id="btnExport">Copy save</button>
       <button id="btnImport">Load save</button>
+      <div id="debugMenuWrap">
+        <button id="btnDebugMenu" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="debugMenu">Debug</button>
+        <div id="debugMenu" aria-hidden="true">
+          <label class="debugToggle" for="toggleGodmode">
+            <span>Godmode</span>
+            <input id="toggleGodmode" type="checkbox" />
+          </label>
+          <label class="debugToggle" for="toggleFreeShopping">
+            <span>Free shopping</span>
+            <input id="toggleFreeShopping" type="checkbox" />
+          </label>
+        </div>
+      </div>
       <div id="headerInfo"></div>
     </header>
 
@@ -733,13 +860,21 @@
           <div id="invOverlay">
             <div id="invPanel">
               <div class="panel" style="background:transparent;border:none;padding:0;">
-                <div id="equipBadges">
-                  <div class="equipBadge"><div class="equipBadgeIcon" id="equipBadgeWeapon"></div></div>
-                  <div class="equipBadge"><div class="equipBadgeIcon" id="equipBadgeHead"></div></div>
-                  <div class="equipBadge"><div class="equipBadgeIcon" id="equipBadgeTorso"></div></div>
-                  <div class="equipBadge"><div class="equipBadgeIcon" id="equipBadgeLegs"></div></div>
+                <div id="invSections">
+                  <button id="equipSectionToggle" class="invSectionToggle" type="button" aria-expanded="true">Equipment -</button>
+                  <div id="equipSectionBody" class="invSectionBody">
+                    <div id="equipBadges">
+                      <div class="equipBadge"><div class="equipBadgeIcon" id="equipBadgeWeapon"></div><div class="equipBadgeLabel">Weapon</div></div>
+                      <div class="equipBadge"><div class="equipBadgeIcon" id="equipBadgeHead"></div><div class="equipBadgeLabel">Head</div></div>
+                      <div class="equipBadge"><div class="equipBadgeIcon" id="equipBadgeTorso"></div><div class="equipBadgeLabel">Torso</div></div>
+                      <div class="equipBadge"><div class="equipBadgeIcon" id="equipBadgeLegs"></div><div class="equipBadgeLabel">Legs</div></div>
+                    </div>
+                  </div>
+                  <button id="inventorySectionToggle" class="invSectionToggle" type="button" aria-expanded="true">Inventory -</button>
+                  <div id="inventorySectionBody" class="invSectionBody">
+                    <div id="invList"></div>
+                  </div>
                 </div>
-                <div id="invList"></div>
               </div>
             </div>
           </div>
@@ -747,9 +882,6 @@
           <div id="metaWrap">
             <div class="meta" id="meta"></div>
             <div id="metaExtras" style="margin-top:8px; text-align:right; pointer-events:none;">
-              <div style="font-size:12px; opacity:0.9;">Equipment</div>
-              <div id="equipText" class="muted" style="white-space:pre-wrap; font-size:13px;"></div>
-              <div style="height:6px"></div>
               <div style="font-size:12px; opacity:0.9;">Effects</div>
               <div id="effectsText" class="muted" style="white-space:pre-wrap; font-size:13px;"></div>
             </div>
