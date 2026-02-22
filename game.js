@@ -56,11 +56,18 @@ const ctx = canvas.getContext("2d");
 const metaEl = document.getElementById("meta");
 const headerInfoEl = document.getElementById("headerInfo");
 const vitalsDisplayEl = document.getElementById("vitalsDisplay");
+const logPanelEl = document.getElementById("logPanel");
 const logEl = document.getElementById("log");
+const logTickerEl = document.getElementById("logTicker");
 const contextActionBtn = document.getElementById("contextActionBtn");
 const contextPotionBtn = document.getElementById("contextPotionBtn");
 const contextAttackListEl = document.getElementById("contextAttackList");
 const depthDisplayEl = document.getElementById("depthDisplay");
+const invOverlayEl = document.getElementById("invOverlay");
+const mobileOverlayBackdropEl = document.getElementById("mobileOverlayBackdrop");
+const mobileQuickBarEl = document.getElementById("mobileQuickBar");
+const btnMobileGearEl = document.getElementById("btnMobileGear");
+const btnMobileLogEl = document.getElementById("btnMobileLog");
 const invListEl = document.getElementById("invList");
 const equipTextEl = document.getElementById("equipText");
 const equipBadgeWeaponEl = document.getElementById("equipBadgeWeapon");
@@ -162,6 +169,8 @@ let fogEnabled = true;
 let minimapEnabled = true;
 const shopUi = { open: false, mode: "buy", selectedBuy: 0, selectedSell: 0 };
 const overlaySections = { equipmentCollapsed: false, inventoryCollapsed: false };
+const mobileUi = { gearOpen: false, logExpanded: false };
+let mobileUiSig = "";
 let contextAuxSignature = "";
 const MOBILE_VISIBILITY_BOOST =
   (typeof window !== "undefined" && window.matchMedia && window.matchMedia("(pointer: coarse)").matches) ||
@@ -325,6 +334,68 @@ function updateOverlaySectionUi() {
     inventorySectionToggleEl.textContent = `Inventory ${invCollapsed ? "+" : "-"}`;
     inventorySectionToggleEl.setAttribute("aria-expanded", invCollapsed ? "false" : "true");
   }
+}
+
+function isCompactMobileUi() {
+  if (typeof window === "undefined" || !window.matchMedia) return false;
+  return window.matchMedia("(max-width: 760px)").matches;
+}
+
+function syncMobileUi(force = false) {
+  const mobile = isCompactMobileUi();
+  const sig = `${mobile}|${mobileUi.gearOpen}|${mobileUi.logExpanded}`;
+  if (!force && sig === mobileUiSig) return;
+  mobileUiSig = sig;
+
+  if (!mobile) {
+    invOverlayEl?.classList.remove("show");
+    mobileOverlayBackdropEl?.classList.remove("show");
+    mobileOverlayBackdropEl?.setAttribute("aria-hidden", "true");
+    logPanelEl?.classList.remove("log-expanded");
+    mobileQuickBarEl?.setAttribute("aria-hidden", "true");
+    if (btnMobileGearEl) {
+      btnMobileGearEl.textContent = "Gear +";
+      btnMobileGearEl.setAttribute("aria-expanded", "false");
+    }
+    if (btnMobileLogEl) {
+      btnMobileLogEl.textContent = "Log +";
+      btnMobileLogEl.setAttribute("aria-expanded", "false");
+    }
+    return;
+  }
+
+  invOverlayEl?.classList.toggle("show", !!mobileUi.gearOpen);
+  mobileOverlayBackdropEl?.classList.toggle("show", !!mobileUi.gearOpen);
+  mobileOverlayBackdropEl?.setAttribute("aria-hidden", mobileUi.gearOpen ? "false" : "true");
+  logPanelEl?.classList.toggle("log-expanded", !!mobileUi.logExpanded);
+  mobileQuickBarEl?.setAttribute("aria-hidden", "false");
+  if (btnMobileGearEl) {
+    btnMobileGearEl.textContent = mobileUi.gearOpen ? "Gear -" : "Gear +";
+    btnMobileGearEl.setAttribute("aria-expanded", mobileUi.gearOpen ? "true" : "false");
+  }
+  if (btnMobileLogEl) {
+    btnMobileLogEl.textContent = mobileUi.logExpanded ? "Log -" : "Log +";
+    btnMobileLogEl.setAttribute("aria-expanded", mobileUi.logExpanded ? "true" : "false");
+  }
+}
+
+function setMobileGearOpen(open) {
+  mobileUi.gearOpen = !!open;
+  syncMobileUi();
+}
+
+function setMobileLogExpanded(open) {
+  mobileUi.logExpanded = !!open;
+  syncMobileUi();
+}
+
+function closeMobilePanels() {
+  const hadOpen = !!mobileUi.gearOpen || !!mobileUi.logExpanded;
+  if (!hadOpen) return false;
+  mobileUi.gearOpen = false;
+  mobileUi.logExpanded = false;
+  syncMobileUi();
+  return true;
 }
 
 // ---------- RNG (deterministic base gen) ----------
@@ -1587,6 +1658,7 @@ function updateShopOverlayMeta(state) {
 
 function openShopOverlay(state, mode = "buy") {
   if (!shopOverlayEl) return false;
+  closeMobilePanels();
   ensureShopState(state);
   refreshShopStock(state, false);
   shopUi.open = true;
@@ -1977,11 +2049,17 @@ function renderLog(state) {
   const last = state.log.slice(-55);
   logEl.textContent = last.join("\n");
   logEl.scrollTop = logEl.scrollHeight;
+  if (logTickerEl) {
+    const latest = last[last.length - 1] ?? "(no messages)";
+    logTickerEl.textContent = latest;
+    logTickerEl.title = latest;
+  }
 }
 
 function updateDeathOverlay(state) {
   if (!deathOverlayEl) return;
   const show = !!state?.player?.dead;
+  if (show) closeMobilePanels();
   deathOverlayEl.classList.toggle("show", show);
   deathOverlayEl.setAttribute("aria-hidden", show ? "false" : "true");
 }
@@ -4200,6 +4278,7 @@ function draw(state) {
   computeVisibility(state);
   hydrateNearby(state);
   const shopRestocked = refreshShopStock(state, false);
+  syncMobileUi();
 
   const { world, player, seen, visible } = state;
   const { monsters, items } = buildOccupancy(state);
@@ -4497,6 +4576,10 @@ function shouldIgnoreGameHotkeys(e) {
 function onKey(state, e) {
   const k = e.key.toLowerCase();
   if (shouldIgnoreGameHotkeys(e)) return;
+  if (k === "escape" && closeMobilePanels()) {
+    e.preventDefault();
+    return;
+  }
   if (isShopOverlayOpen()) {
     e.preventDefault();
     if (k === "escape") closeShopOverlay();
@@ -5073,6 +5156,19 @@ shopTabSellEl?.addEventListener("click", () => {
 shopOverlayEl?.addEventListener("click", (e) => {
   if (e.target === shopOverlayEl) closeShopOverlay();
 });
+btnMobileGearEl?.addEventListener("click", (e) => {
+  e.preventDefault();
+  if (!isCompactMobileUi()) return;
+  setMobileGearOpen(!mobileUi.gearOpen);
+});
+btnMobileLogEl?.addEventListener("click", (e) => {
+  e.preventDefault();
+  if (!isCompactMobileUi()) return;
+  setMobileLogExpanded(!mobileUi.logExpanded);
+});
+mobileOverlayBackdropEl?.addEventListener("click", () => {
+  closeMobilePanels();
+});
 contextActionBtn?.addEventListener("click", () => {
   if (!game) return;
   const action = resolveContextAction(game);
@@ -5144,7 +5240,9 @@ try {
   renderEquipment(game);
   renderEffects(game);
   renderLog(game);
+  syncMobileUi(true);
   document.addEventListener("keydown", (e) => onKey(game, e));
+  window.addEventListener("resize", () => syncMobileUi(true));
   // Initialize touch controls (mobile): wire on-screen buttons to existing actions
   function initTouchControls() {
     try {

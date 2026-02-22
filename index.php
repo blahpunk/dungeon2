@@ -272,6 +272,35 @@
         overflow: auto;
         white-space: pre-wrap;
       }
+      #mobileOverlayBackdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 1360;
+        display: none;
+        background: rgba(0, 0, 0, 0.42);
+      }
+      #mobileOverlayBackdrop.show {
+        display: block;
+      }
+      #mobileQuickBar {
+        display: none;
+        gap: 8px;
+        margin-top: 6px;
+      }
+      #logTicker {
+        display: none;
+        margin-top: 6px;
+        padding: 2px 6px;
+        border-radius: 8px;
+        border: 1px solid rgba(50, 66, 98, 0.55);
+        background: rgba(8, 12, 18, 0.55);
+        font-size: 12px;
+        line-height: 1.25;
+        opacity: 0.92;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
       #deathOverlay {
         position: absolute;
         inset: 0;
@@ -778,6 +807,9 @@
         body {
           background: #131c2b;
         }
+        #metaWrap {
+          display: none;
+        }
         header {
           background: #162133;
           border-bottom-color: #2c3b57;
@@ -789,10 +821,88 @@
         canvas#c {
           filter: brightness(1.24) contrast(1.08) saturate(1.08);
         }
+        #invOverlay {
+          position: fixed;
+          left: 10px;
+          right: 10px;
+          top: auto;
+          bottom: 108px;
+          max-width: none;
+          z-index: 1370;
+          transform: translateY(calc(100% + 16px));
+          opacity: 0;
+          pointer-events: none;
+          transition: transform 180ms ease, opacity 160ms ease;
+        }
+        #invOverlay.show {
+          transform: translateY(0);
+          opacity: 1;
+          pointer-events: auto;
+        }
+        #invOverlay #invPanel .panel {
+          background: rgba(7, 11, 18, 0.98) !important;
+          border: 1px solid #2b3956 !important;
+          border-radius: 12px !important;
+          padding: 8px !important;
+          box-shadow: 0 8px 18px rgba(0, 0, 0, 0.35);
+        }
+        #invOverlay #invSections {
+          max-height: min(56vh, 420px);
+          overflow: auto;
+          padding-right: 2px;
+        }
         #logPanel {
-          background: rgba(14, 20, 32, 0.35);
-          border-radius: 10px;
-          padding: 4px;
+          width: calc(100% - 24px);
+          max-width: none;
+          background: rgba(14, 20, 32, 0.58);
+          border: 1px solid #324465;
+          border-radius: 12px;
+          padding: 8px;
+        }
+        #vitalsDisplay {
+          position: fixed;
+          top: 70px;
+          left: 12px;
+          z-index: 1365;
+          margin: 0;
+          padding: 4px 8px;
+          border: 1px solid #3a4d74;
+          border-radius: 8px;
+          background: rgba(11, 17, 28, 0.78);
+          font-size: 14px;
+          pointer-events: none;
+        }
+        #depthDisplay {
+          margin: 0 0 6px 0;
+          font-size: 14px;
+          font-weight: 800;
+        }
+        #log {
+          display: none;
+          height: min(32vh, 220px);
+          border: 1px solid #2d3d5b;
+          border-radius: 8px;
+          background: rgba(7, 11, 18, 0.88);
+          padding: 8px;
+        }
+        #logPanel.log-expanded #log {
+          display: block;
+        }
+        #mobileQuickBar {
+          display: flex;
+        }
+        #mobileQuickBar button {
+          flex: 1 1 0;
+          min-width: 0;
+          padding: 6px 8px;
+          font-size: 12px;
+          border-radius: 8px;
+        }
+        #logTicker {
+          display: block;
+        }
+        #logPanel.log-expanded #logTicker {
+          display: none;
         }
 
         /* Fixed to bottom-right: actions at left, D-pad at right */
@@ -812,8 +922,7 @@
         }
 
         /* Ensure the canvas/log have space so controls stay visible */
-        #mainCanvasWrap { padding-bottom: 140px; }
-        #log { height: calc(6 * 1.35em + 12px); }
+        #mainCanvasWrap { padding-bottom: 168px; }
 
         /* D-pad: up centered above the middle row (left/center/right), down centered below */
         #dpad { display: flex; flex-direction: column; gap: 8px; align-items: center; }
@@ -909,6 +1018,7 @@
         <div id="mainCanvasWrap">
           <canvas id="c"></canvas>
           <div id="surfaceCompass" aria-hidden="true"><div id="surfaceCompassArrow">&#9650;</div></div>
+          <div id="mobileOverlayBackdrop" aria-hidden="true"></div>
 
           <div id="invOverlay">
             <div id="invPanel">
@@ -949,6 +1059,11 @@
               <div id="contextAttackList"></div>
             </div>
             <div id="depthDisplay">Depth: 0</div>
+            <div id="mobileQuickBar" aria-hidden="true">
+              <button id="btnMobileGear" type="button" aria-expanded="false" aria-controls="invOverlay">Gear +</button>
+              <button id="btnMobileLog" type="button" aria-expanded="false" aria-controls="log">Log +</button>
+            </div>
+            <div id="logTicker" aria-live="polite"></div>
             <div id="log"></div>
           </div>
 
