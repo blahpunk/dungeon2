@@ -1346,13 +1346,20 @@ function updateDeathOverlay(state) {
   deathOverlayEl.setAttribute("aria-hidden", show ? "false" : "true");
 }
 
+function stairContextLabel(state, dir) {
+  const z = state?.player?.z ?? 0;
+  if (dir === "down" && z === SURFACE_LEVEL) return "Enter dungeon";
+  if (dir === "up" && z === 0) return "Ascend to surface";
+  return dir === "down" ? "Descend Stairs" : "Ascend Stairs";
+}
+
 function resolveContextAction(state, occupancy = null) {
   const p = state.player;
   if (p.dead) return null;
 
   const here = state.world.getTile(p.x, p.y, p.z);
-  if (here === STAIRS_DOWN) return { type: "stairs-down", label: "Descend Stairs", run: () => tryUseStairs(state, "down") };
-  if (here === STAIRS_UP) return { type: "stairs-up", label: "Ascend Stairs", run: () => tryUseStairs(state, "up") };
+  if (here === STAIRS_DOWN) return { type: "stairs-down", label: stairContextLabel(state, "down"), run: () => tryUseStairs(state, "down") };
+  if (here === STAIRS_UP) return { type: "stairs-up", label: stairContextLabel(state, "up"), run: () => tryUseStairs(state, "up") };
 
   const occ = occupancy ?? buildOccupancy(state);
   const attackTarget = getAdjacentMonsterTarget(state, occ);
@@ -1507,14 +1514,14 @@ function buildAuxContextActions(state, occupancy = null, primaryAction = null) {
   if (here === STAIRS_DOWN && primaryAction?.type !== "stairs-down") {
     actions.push({
       id: "aux|stairs-down",
-      label: "Descend Stairs",
+      label: stairContextLabel(state, "down"),
       run: () => tryUseStairs(state, "down"),
     });
   }
   if (here === STAIRS_UP && primaryAction?.type !== "stairs-up") {
     actions.push({
       id: "aux|stairs-up",
-      label: "Ascend Stairs",
+      label: stairContextLabel(state, "up"),
       run: () => tryUseStairs(state, "up"),
     });
   }
@@ -1962,16 +1969,24 @@ function hydrateChunkEntities(state, z, cx, cy) {
   }
 
   if (z === SURFACE_LEVEL && cx === 0 && cy === 0) {
+    // Keep the surface dungeon entrance fixed at center.
+    state.world.setTile(0, 0, z, STAIRS_DOWN);
     const id = "shopkeeper|surface|0,0";
-    if (!state.removedIds.has(id) && !state.entities.has(id)) {
-      state.world.setTile(1, 0, z, FLOOR);
+    if (!state.removedIds.has(id)) {
+      const x = 10, y = -8;
+      const left = x - Math.floor(SHOP_FOOTPRINT_W / 2);
+      const top = y;
+      for (let yy = top; yy < top + SHOP_FOOTPRINT_H; yy++) {
+        for (let xx = left; xx < left + SHOP_FOOTPRINT_W; xx++) state.world.setTile(xx, yy, z, FLOOR);
+      }
+      const existing = state.entities.get(id);
       state.entities.set(id, {
         id,
-        origin: "base",
-        kind: "item",
+        origin: existing?.origin ?? "base",
+        kind: existing?.kind ?? "item",
         type: "shopkeeper",
-        amount: 1,
-        x: 1, y: 0, z,
+        amount: existing?.amount ?? 1,
+        x, y, z,
       });
     }
   }
@@ -2007,7 +2022,15 @@ function getItemsAt(state, x, y, z) {
   const items = [];
   for (const e of state.entities.values()) {
     if (e.kind !== "item") continue;
-    if (e.x !== x || e.y !== y || e.z !== z) continue;
+    if (e.z !== z) continue;
+    if (e.type === "shopkeeper") {
+      const left = e.x - Math.floor(SHOP_FOOTPRINT_W / 2);
+      const top = e.y;
+      if (x < left || x >= left + SHOP_FOOTPRINT_W || y < top || y >= top + SHOP_FOOTPRINT_H) continue;
+      items.push(e);
+      continue;
+    }
+    if (e.x !== x || e.y !== y) continue;
     items.push(e);
   }
   return items;
@@ -2017,7 +2040,14 @@ function findItemAtByType(state, x, y, z, type) {
   for (const e of state.entities.values()) {
     if (e.kind !== "item") continue;
     if (e.type !== type) continue;
-    if (e.x === x && e.y === y && e.z === z) return e;
+    if (e.z !== z) continue;
+    if (type === "shopkeeper") {
+      const left = e.x - Math.floor(SHOP_FOOTPRINT_W / 2);
+      const top = e.y;
+      if (x >= left && x < left + SHOP_FOOTPRINT_W && y >= top && y < top + SHOP_FOOTPRINT_H) return e;
+      continue;
+    }
+    if (e.x === x && e.y === y) return e;
   }
   return null;
 }
@@ -2909,6 +2939,10 @@ function monstersTurn(state) {
 const GLYPH_FONT = `bold ${Math.floor(TILE * 1.12)}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace`;
 const MONSTER_SPRITE_SIZE = Math.round(TILE * 1.6);
 const ITEM_SPRITE_SIZE = Math.round(TILE * 1.6);
+const SURFACE_ENTRANCE_SPRITE_SIZE = Math.round(TILE * 2.25);
+const SHOP_SPRITE_SIZE = Math.round(TILE * 3.25);
+const SHOP_FOOTPRINT_W = 3;
+const SHOP_FOOTPRINT_H = 2;
 const SPRITE_SOURCES = {
   goblin: "./client/assets/goblin_dagger_full.png",
   rat: "./client/assets/rat_full.png",
@@ -2923,6 +2957,7 @@ const SPRITE_SOURCES = {
   chest_red: "./client/assets/red_chest_full.png",
   chest_blue: "./client/assets/blue_chest_full.png",
   chest_green: "./client/assets/green_chest_full.png",
+  shopkeeper: "./client/assets/shop_full.png",
   gold: "./client/assets/coins_full.png",
   potion: "./client/assets/potion_hp_full.png",
   surface_entrance: "./client/assets/surface_entrance_full.png",
@@ -2954,8 +2989,8 @@ function buildSpriteTransparency(id, img) {
   if (!octx) return null;
   octx.drawImage(img, 0, 0);
 
-  const id = octx.getImageData(0, 0, w, h);
-  const d = id.data;
+  const imageData = octx.getImageData(0, 0, w, h);
+  const d = imageData.data;
   const sample = (x, y) => {
     const i = (y * w + x) * 4;
     return [d[i], d[i + 1], d[i + 2]];
@@ -2991,7 +3026,7 @@ function buildSpriteTransparency(id, img) {
     }
   }
 
-  octx.putImageData(id, 0, 0);
+  octx.putImageData(imageData, 0, 0);
   if (maxX < minX || maxY < minY) return off;
 
   const tw = maxX - minX + 1;
@@ -3051,6 +3086,7 @@ function itemSpriteId(ent) {
   if (ent.type === "armor_leather_legs") return "armor_leather_legs";
   if (ent.type === "armor_iron_chest") return "armor_iron_chest";
   if (ent.type === "armor_iron_legs") return "armor_iron_legs";
+  if (ent.type === "shopkeeper") return "shopkeeper";
   return null;
 }
 
@@ -3073,6 +3109,16 @@ function drawCenteredSprite(ctx2d, sx, sy, img, w, h) {
   const dh = Math.max(1, Math.round(ih * scale));
   const px = sx * TILE + Math.floor((TILE - dw) / 2);
   const py = sy * TILE + Math.floor((TILE - dh) / 2);
+  ctx2d.drawImage(img, px, py, dw, dh);
+}
+function drawCenteredSpriteAt(ctx2d, centerX, centerY, img, w, h) {
+  const iw = img?.width || 1;
+  const ih = img?.height || 1;
+  const scale = Math.min(w, h) / Math.max(iw, ih);
+  const dw = Math.max(1, Math.round(iw * scale));
+  const dh = Math.max(1, Math.round(ih * scale));
+  const px = Math.round(centerX - dw / 2);
+  const py = Math.round(centerY - dh / 2);
   ctx2d.drawImage(img, px, py, dw, dh);
 }
 function tileGlyph(t) {
@@ -3171,6 +3217,7 @@ function draw(state) {
   const { monsters, items } = buildOccupancy(state);
   updateContextActionButton(state, { monsters, items });
   const theme = themeForDepth(player.z);
+  const deferredTileSprites = [];
   const deferredItemSprites = [];
   const deferredMonsterSprites = [];
 
@@ -3276,9 +3323,13 @@ function draw(state) {
         }
       }
 
-      const tileSprite = getSpriteIfReady(tileSpriteId(state, wx, wy, player.z, t));
+      const tileSpriteKind = tileSpriteId(state, wx, wy, player.z, t);
+      const tileSprite = getSpriteIfReady(tileSpriteKind);
       if (tileSprite) {
-        drawCenteredSprite(ctx, sx, sy, tileSprite, ITEM_SPRITE_SIZE, ITEM_SPRITE_SIZE);
+        const tileSpriteSize = tileSpriteKind === "surface_entrance"
+          ? SURFACE_ENTRANCE_SPRITE_SIZE
+          : ITEM_SPRITE_SIZE;
+        deferredTileSprites.push({ sx, sy, img: tileSprite, size: tileSpriteSize });
       } else {
         const tg = tileGlyph(t);
         if (tg) {
@@ -3295,7 +3346,13 @@ function draw(state) {
           const ent = state.entities.get(ik);
           const itemSprite = getSpriteIfReady(itemSpriteId(ent));
           if (itemSprite) {
-            deferredItemSprites.push({ sx, sy, img: itemSprite });
+            if (ent?.type === "shopkeeper") {
+              const centerX = (sx + 0.5) * TILE;
+              const centerY = (sy + SHOP_FOOTPRINT_H / 2) * TILE;
+              deferredItemSprites.push({ sx, sy, img: itemSprite, size: SHOP_SPRITE_SIZE, centerX, centerY });
+            } else {
+              deferredItemSprites.push({ sx, sy, img: itemSprite, size: ITEM_SPRITE_SIZE });
+            }
           } else {
             const gi = itemGlyph(ent?.type);
             if (gi) drawGlyph(ctx, sx, sy, gi.g, gi.c);
@@ -3316,8 +3373,16 @@ function draw(state) {
     }
   }
 
+  // Draw tile sprites after terrain so wall shading/neighbor tiles cannot overpaint them.
+  for (const spr of deferredTileSprites) {
+    drawCenteredSprite(ctx, spr.sx, spr.sy, spr.img, spr.size, spr.size);
+  }
   for (const spr of deferredItemSprites) {
-    drawCenteredSprite(ctx, spr.sx, spr.sy, spr.img, ITEM_SPRITE_SIZE, ITEM_SPRITE_SIZE);
+    if (Number.isFinite(spr.centerX) && Number.isFinite(spr.centerY)) {
+      drawCenteredSpriteAt(ctx, spr.centerX, spr.centerY, spr.img, spr.size ?? ITEM_SPRITE_SIZE, spr.size ?? ITEM_SPRITE_SIZE);
+    } else {
+      drawCenteredSprite(ctx, spr.sx, spr.sy, spr.img, spr.size ?? ITEM_SPRITE_SIZE, spr.size ?? ITEM_SPRITE_SIZE);
+    }
   }
   // Draw oversized monster sprites after terrain so neighboring tiles don't overpaint overflow.
   for (const spr of deferredMonsterSprites) {
