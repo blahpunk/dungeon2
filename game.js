@@ -819,19 +819,19 @@ function weightedPick(rng, entries) {
 }
 
 function weaponMaterialWeightsForDepth(z) {
-  if (z <= 0) return [{ id: "bronze", w: 82 }, { id: "iron", w: 18 }];
-  if (z <= 2) return [{ id: "bronze", w: 75 }, { id: "iron", w: 22 }, { id: "steel", w: 3 }];
-  if (z <= 5) return [{ id: "bronze", w: 58 }, { id: "iron", w: 34 }, { id: "steel", w: 8 }];
-  if (z <= 9) return [{ id: "bronze", w: 38 }, { id: "iron", w: 45 }, { id: "steel", w: 17 }];
-  return [{ id: "bronze", w: 20 }, { id: "iron", w: 45 }, { id: "steel", w: 35 }];
+  if (z <= 0) return [{ id: "bronze", w: 100 }];
+  if (z <= 2) return [{ id: "bronze", w: 72 }, { id: "iron", w: 28 }];
+  if (z <= 4) return [{ id: "bronze", w: 48 }, { id: "iron", w: 42 }, { id: "steel", w: 10 }];
+  if (z <= 8) return [{ id: "bronze", w: 28 }, { id: "iron", w: 47 }, { id: "steel", w: 25 }];
+  return [{ id: "bronze", w: 14 }, { id: "iron", w: 46 }, { id: "steel", w: 40 }];
 }
 
 function armorMaterialWeightsForDepth(z) {
-  if (z <= 0) return [{ id: "leather", w: 82 }, { id: "iron", w: 18 }];
-  if (z <= 2) return [{ id: "leather", w: 74 }, { id: "iron", w: 23 }, { id: "steel", w: 3 }];
-  if (z <= 5) return [{ id: "leather", w: 57 }, { id: "iron", w: 35 }, { id: "steel", w: 8 }];
-  if (z <= 9) return [{ id: "leather", w: 35 }, { id: "iron", w: 47 }, { id: "steel", w: 18 }];
-  return [{ id: "leather", w: 18 }, { id: "iron", w: 48 }, { id: "steel", w: 34 }];
+  if (z <= 0) return [{ id: "leather", w: 100 }];
+  if (z <= 2) return [{ id: "leather", w: 70 }, { id: "iron", w: 30 }];
+  if (z <= 4) return [{ id: "leather", w: 46 }, { id: "iron", w: 44 }, { id: "steel", w: 10 }];
+  if (z <= 8) return [{ id: "leather", w: 24 }, { id: "iron", w: 50 }, { id: "steel", w: 26 }];
+  return [{ id: "leather", w: 12 }, { id: "iron", w: 49 }, { id: "steel", w: 39 }];
 }
 
 function weaponForDepth(z, rng = Math.random) {
@@ -885,15 +885,15 @@ function shopCatalogForDepth(depth) {
     items.push({ type: armorType("leather", slot), w: 8 });
   }
 
-  const ironWeight = d <= 0 ? 2 : d <= 3 ? 3 : 5;
+  const ironWeight = d <= 0 ? 0 : d <= 2 ? 4 : 6;
   for (const kind of WEAPON_KINDS) {
-    items.push({ type: weaponType("iron", kind), w: ironWeight });
+    if (ironWeight > 0) items.push({ type: weaponType("iron", kind), w: ironWeight });
   }
   for (const slot of ARMOR_SLOTS) {
-    items.push({ type: armorType("iron", slot), w: Math.max(1, ironWeight - 1) });
+    if (ironWeight > 0) items.push({ type: armorType("iron", slot), w: Math.max(1, ironWeight - 1) });
   }
 
-  const steelWeight = d < 4 ? 0 : d < 8 ? 1 : d < 12 ? 2 : 4;
+  const steelWeight = d < 3 ? 0 : d < 6 ? 2 : d < 10 ? 3 : 5;
   if (steelWeight > 0) {
     for (const kind of WEAPON_KINDS) {
       items.push({ type: weaponType("steel", kind), w: steelWeight });
@@ -1013,6 +1013,16 @@ function closeShopOverlay() {
   shopOverlayEl.setAttribute("aria-hidden", "true");
 }
 
+function updateShopOverlayMeta(state) {
+  if (!shopUi.open) return;
+  const now = Date.now();
+  if (shopGoldEl) shopGoldEl.textContent = `Gold: ${state.player.gold}`;
+  if (shopRefreshEl) {
+    const remaining = (state.shop?.nextRefreshMs ?? now) - now;
+    shopRefreshEl.textContent = `Refresh in ${formatMs(remaining)}`;
+  }
+}
+
 function openShopOverlay(state, mode = "buy") {
   if (!shopOverlayEl) return false;
   ensureShopState(state);
@@ -1030,7 +1040,6 @@ function openShopOverlay(state, mode = "buy") {
 function renderShopOverlay(state) {
   if (!shopUi.open || !shopOverlayEl || !shopListEl) return;
 
-  const now = Date.now();
   const stock = state.shop?.stock ?? [];
   const sellable = getSellableInventory(state);
   const isBuyMode = shopUi.mode === "buy";
@@ -1043,11 +1052,7 @@ function renderShopOverlay(state) {
 
   shopTabBuyEl?.classList.toggle("active", isBuyMode);
   shopTabSellEl?.classList.toggle("active", !isBuyMode);
-  if (shopGoldEl) shopGoldEl.textContent = `Gold: ${state.player.gold}`;
-  if (shopRefreshEl) {
-    const remaining = (state.shop?.nextRefreshMs ?? now) - now;
-    shopRefreshEl.textContent = `Refresh in ${formatMs(remaining)}`;
-  }
+  updateShopOverlayMeta(state);
 
   shopListEl.innerHTML = "";
   if (!entries.length) {
@@ -1174,13 +1179,13 @@ function chunkBaseSpawns(worldSeed, chunk) {
   const depthBoost = clamp(z, 0, 60);
 
   const monsterCount = clamp(
-    randInt(rng, 1, 3) + (rng() < depthBoost / 55 ? 1 : 0) + (rng() < 0.22 ? 1 : 0),
+    randInt(rng, 2, 5) + (rng() < depthBoost / 50 ? 1 : 0) + (rng() < 0.38 ? 1 : 0),
     0,
-    7
+    10
   );
 
-  // increase possible items per chunk to make potions/chests more common
-  const itemCount = clamp(randInt(rng, 1, 4), 0, 6);
+  // Higher baseline item density for a richer dungeon.
+  const itemCount = clamp(randInt(rng, 2, 6) + (rng() < 0.30 ? 1 : 0), 0, 9);
 
   const cells = samplePassableCellsInChunk(grid, rng, monsterCount + itemCount + 18);
   const monsters = [];
@@ -1227,11 +1232,11 @@ function chunkBaseSpawns(worldSeed, chunk) {
     const roll = rng();
     // Potions are common; equipment appears regularly; keys are occasional.
     const equipmentType = rng() < 0.6 ? weaponForDepth(z, rng) : armorForDepth(z, rng);
-    const type = roll < 0.52 ? "potion" : roll < 0.74 ? "gold" : roll < 0.91 ? equipmentType : keyTypeForDepth(z, rng);
+    const type = roll < 0.45 ? "potion" : roll < 0.66 ? "gold" : roll < 0.94 ? equipmentType : keyTypeForDepth(z, rng);
     const id = `i|${z}|${cx},${cy}|${i}`;
     const amount = type === "gold" ? randInt(rng, 4, 22) + clamp(z, 0, 30) : 1;
     // Small chance this item is actually a chest (locked or unlocked)
-    if (rng() < 0.18) {
+    if (rng() < 0.24) {
       const locked = rng() < 0.6;
       let keyType = null;
       if (locked) {
@@ -1259,7 +1264,7 @@ function chunkBaseSpawns(worldSeed, chunk) {
   }
 
   // bump chance for extra chests (more frequent, scales with depth)
-  if (rng() < clamp(0.35 + z * 0.02, 0.35, 0.65)) {
+  if (rng() < clamp(0.50 + z * 0.02, 0.50, 0.78)) {
     const c = cells[monsterCount + itemCount] ?? cells[cells.length - 1];
     if (c) {
       pushItem({ id: `chest_extra|${z}|${cx},${cy}`, type: "chest", amount: 1, lx: c.x, ly: c.y });
@@ -2785,7 +2790,7 @@ function monsterGlyph(type) {
 function draw(state) {
   computeVisibility(state);
   hydrateNearby(state);
-  refreshShopStock(state, false);
+  const shopRestocked = refreshShopStock(state, false);
 
   const { world, player, seen, visible } = state;
   const { monsters, items } = buildOccupancy(state);
@@ -2969,7 +2974,10 @@ function draw(state) {
   drawMinimap(state);
   updateDeathOverlay(state);
   if (state.player.dead && isShopOverlayOpen()) closeShopOverlay();
-  if (shopUi.open) renderShopOverlay(state);
+  if (shopUi.open) {
+    if (shopRestocked) renderShopOverlay(state);
+    else updateShopOverlayMeta(state);
+  }
 }
 
 // ---------- Turn handling ----------
