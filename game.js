@@ -719,12 +719,26 @@ function hasLineOfSight(world, z, x0, y0, x1, y1) {
 
 // ---------- Monsters / Items ----------
 const MONSTER_TYPES = {
-  rat:      { name: "Rat",      maxHp: 600,  atkLo: 100, atkHi: 300, xp: 2,  glyph: "r" },
-  goblin:   { name: "Goblin",   maxHp: 1000, atkLo: 200, atkHi: 400, xp: 4,  glyph: "g" },
-  slime:    { name: "Slime",    maxHp: 1400, atkLo: 200, atkHi: 500, xp: 5,  glyph: "s" },
-  skeleton: { name: "Skeleton", maxHp: 1800, atkLo: 300, atkHi: 600, xp: 8,  glyph: "k" },
-  archer:   { name: "Archer",   maxHp: 1200, atkLo: 200, atkHi: 400, xp: 7,  glyph: "a", range: 6, cdTurns: 2 },
+  rat:          { name: "Rat",          maxHp: 600,  atkLo: 100, atkHi: 300, xp: 2,  glyph: "r" },
+  goblin:       { name: "Goblin",       maxHp: 1000, atkLo: 200, atkHi: 400, xp: 4,  glyph: "g" },
+  slime:        { name: "Slime",        maxHp: 1400, atkLo: 200, atkHi: 500, xp: 5,  glyph: "s" },
+  rogue:        { name: "Rogue",        maxHp: 1300, atkLo: 260, atkHi: 560, xp: 7,  glyph: "r" },
+  jelly:        { name: "Jelly",        maxHp: 1900, atkLo: 240, atkHi: 620, xp: 8,  glyph: "j" },
+  giant_spider: { name: "Giant Spider", maxHp: 2200, atkLo: 320, atkHi: 720, xp: 10, glyph: "S" },
+  skeleton:     { name: "Skeleton",     maxHp: 1800, atkLo: 300, atkHi: 600, xp: 8,  glyph: "k" },
+  archer:       { name: "Archer",       maxHp: 1200, atkLo: 200, atkHi: 400, xp: 7,  glyph: "a", range: 6, cdTurns: 2 },
 };
+
+function monsterStatsForDepth(type, z) {
+  const spec = MONSTER_TYPES[type] ?? MONSTER_TYPES.rat;
+  const depth = clamp(z, 0, 60);
+  const hpScale = 1 + Math.min(1.8, depth * 0.12);
+  const atkScale = 1 + Math.min(1.2, depth * 0.08);
+  const maxHp = Math.max(1, Math.floor(spec.maxHp * hpScale));
+  const atkLo = Math.max(1, Math.floor(spec.atkLo * atkScale));
+  const atkHi = Math.max(atkLo, Math.floor(spec.atkHi * atkScale));
+  return { ...spec, maxHp, atkLo, atkHi };
+}
 
 const WEAPON_MATERIALS = ["bronze", "iron", "steel"];
 const WEAPON_KINDS = ["dagger", "sword", "axe"];
@@ -1142,10 +1156,11 @@ function weightedChoice(rng, entries) {
   return entries[entries.length - 1].id;
 }
 function monsterTableForDepth(z) {
-  if (z <= 2) return [{ id: "rat", w: 7 }, { id: "goblin", w: 3 }];
-  if (z <= 6) return [{ id: "rat", w: 3 }, { id: "goblin", w: 6 }, { id: "slime", w: 3 }];
-  if (z <= 10) return [{ id: "goblin", w: 3 }, { id: "slime", w: 5 }, { id: "skeleton", w: 3 }, { id: "archer", w: 2 }];
-  return [{ id: "slime", w: 4 }, { id: "skeleton", w: 6 }, { id: "archer", w: 4 }];
+  if (z <= 1) return [{ id: "rat", w: 6 }, { id: "goblin", w: 4 }];
+  if (z <= 3) return [{ id: "rat", w: 3 }, { id: "goblin", w: 5 }, { id: "rogue", w: 2 }, { id: "jelly", w: 2 }];
+  if (z <= 6) return [{ id: "goblin", w: 3 }, { id: "slime", w: 4 }, { id: "rogue", w: 3 }, { id: "jelly", w: 3 }, { id: "giant_spider", w: 2 }];
+  if (z <= 10) return [{ id: "slime", w: 3 }, { id: "rogue", w: 3 }, { id: "jelly", w: 4 }, { id: "giant_spider", w: 4 }, { id: "skeleton", w: 4 }, { id: "archer", w: 2 }];
+  return [{ id: "rogue", w: 2 }, { id: "jelly", w: 4 }, { id: "giant_spider", w: 5 }, { id: "skeleton", w: 5 }, { id: "archer", w: 3 }];
 }
 
 function keyTypeForDepth(z, rng) {
@@ -1655,7 +1670,7 @@ function hydrateChunkEntities(state, z, cx, cy) {
     const my = ov?.y ?? wy;
     const mz = ov?.z ?? z;
 
-    const spec = MONSTER_TYPES[m.type] ?? MONSTER_TYPES.rat;
+    const spec = monsterStatsForDepth(m.type, z);
     const hp = ov?.hp ?? spec.maxHp;
     const cd = ov?.cd ?? 0;
 
@@ -2522,9 +2537,9 @@ function monsterHitPlayer(state, monster, baseDmgLo, baseDmgHi, verb = "hits") {
   // Base damage roll
   let raw = baseDmgLo + Math.floor(Math.random() * (baseDmgHi - baseDmgLo + 1));
 
-  // Progressive difficulty: small damage boost by depth for all monsters
+  // Progressive difficulty: additional small bonus by depth for all monsters
   const depth = clamp(monster.z ?? state.player.z, 0, 60);
-  const depthBonus = Math.floor(depth / 4) * COMBAT_SCALE; // +100 every 4 levels
+  const depthBonus = Math.floor(depth / 8) * 40;
   raw += depthBonus;
 
   // Depth 0 rats must never hit harder than 100
@@ -2560,7 +2575,7 @@ function monstersTurn(state) {
 
     if ((m.cd ?? 0) > 0) m.cd -= 1;
 
-    const spec = MONSTER_TYPES[m.type] ?? MONSTER_TYPES.rat;
+    const spec = monsterStatsForDepth(m.type, m.z ?? z);
     const mdx = p.x - m.x, mdy = p.y - m.y;
     const distMan = Math.abs(mdx) + Math.abs(mdy);
     const adj = distMan === 1;
@@ -2782,6 +2797,9 @@ function monsterGlyph(type) {
   if (type === "rat") return { g: "r", c: "#ff6b6b" };
   if (type === "goblin") return { g: "g", c: "#ff6b6b" };
   if (type === "slime") return { g: "s", c: "#ff6b6b" };
+  if (type === "rogue") return { g: "R", c: "#ff8a6b" };
+  if (type === "jelly") return { g: "j", c: "#ff6bca" };
+  if (type === "giant_spider") return { g: "S", c: "#ff9f4a" };
   if (type === "skeleton") return { g: "K", c: "#ff6b6b" };
   if (type === "archer") return { g: "a", c: "#ffb36b" };
   return { g: "m", c: "#ff6b6b" };
