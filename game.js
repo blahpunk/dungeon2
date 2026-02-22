@@ -40,6 +40,7 @@ const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
 const metaEl = document.getElementById("meta");
 const logEl = document.getElementById("log");
+const contextActionBtn = document.getElementById("contextActionBtn");
 const invListEl = document.getElementById("invList");
 const equipTextEl = document.getElementById("equipText");
 const effectsTextEl = document.getElementById("effectsText");
@@ -931,6 +932,47 @@ function renderLog(state) {
   const last = state.log.slice(-55);
   logEl.textContent = last.join("\n");
   logEl.scrollTop = logEl.scrollHeight;
+}
+
+function resolveContextAction(state, occupancy = null) {
+  const p = state.player;
+  if (p.dead) return null;
+
+  const occ = occupancy ?? buildOccupancy(state);
+  const itemId = occ.items.get(keyXYZ(p.x, p.y, p.z));
+  if (itemId) {
+    return { type: "pickup", label: "Pick Up", run: () => pickup(state) };
+  }
+
+  const dirs = [[0,-1],[1,0],[0,1],[-1,0]];
+  for (const [dx, dy] of dirs) {
+    const x = p.x + dx, y = p.y + dy;
+    const t = state.world.getTile(x, y, p.z);
+    if (t !== DOOR_OPEN) continue;
+    const blocked = occ.monsters.get(keyXYZ(x, y, p.z)) || occ.items.get(keyXYZ(x, y, p.z));
+    if (blocked) continue;
+    return { type: "close-door", label: "Close Door", run: () => tryCloseAdjacentDoor(state) };
+  }
+  for (const [dx, dy] of dirs) {
+    const x = p.x + dx, y = p.y + dy;
+    const t = state.world.getTile(x, y, p.z);
+    if (t === DOOR_CLOSED) return { type: "open-door", label: "Open Door", run: () => tryOpenAdjacentDoor(state) };
+  }
+  return null;
+}
+
+function updateContextActionButton(state, occupancy = null) {
+  if (!contextActionBtn) return;
+  const action = resolveContextAction(state, occupancy);
+  if (!action) {
+    contextActionBtn.disabled = true;
+    contextActionBtn.textContent = "No Action";
+    contextActionBtn.dataset.actionType = "none";
+    return;
+  }
+  contextActionBtn.disabled = false;
+  contextActionBtn.textContent = action.label;
+  contextActionBtn.dataset.actionType = action.type;
 }
 
 function isStackable(type) {
@@ -2275,6 +2317,7 @@ function draw(state) {
 
   const { world, player, seen, visible } = state;
   const { monsters, items } = buildOccupancy(state);
+  updateContextActionButton(state, { monsters, items });
   const theme = themeForDepth(player.z);
   const deferredItemSprites = [];
   const deferredMonsterSprites = [];
@@ -2832,6 +2875,12 @@ document.getElementById("btnImport").addEventListener("click", () => {
   game = loaded;
   saveNow(game);
 });
+contextActionBtn?.addEventListener("click", () => {
+  if (!game) return;
+  const action = resolveContextAction(game);
+  if (!action) return;
+  takeTurn(game, action.run());
+});
 
 // ---------- Main ----------
 let game = null;
@@ -2853,6 +2902,7 @@ window.addEventListener("unhandledrejection", (e) => showFatal(e.reason ?? e));
 
 try {
   game = loadSaveOrNew();
+  updateContextActionButton(game);
   renderInventory(game);
   renderEquipment(game);
   renderEffects(game);
