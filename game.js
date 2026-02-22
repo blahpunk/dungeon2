@@ -53,6 +53,10 @@ const equipBadgeWeaponEl = document.getElementById("equipBadgeWeapon");
 const equipBadgeHeadEl = document.getElementById("equipBadgeHead");
 const equipBadgeTorsoEl = document.getElementById("equipBadgeTorso");
 const equipBadgeLegsEl = document.getElementById("equipBadgeLegs");
+const equipBadgeLabelWeaponEl = document.getElementById("equipBadgeLabelWeapon");
+const equipBadgeLabelHeadEl = document.getElementById("equipBadgeLabelHead");
+const equipBadgeLabelTorsoEl = document.getElementById("equipBadgeLabelTorso");
+const equipBadgeLabelLegsEl = document.getElementById("equipBadgeLabelLegs");
 const equipSectionToggleEl = document.getElementById("equipSectionToggle");
 const inventorySectionToggleEl = document.getElementById("inventorySectionToggle");
 const equipSectionBodyEl = document.getElementById("equipSectionBody");
@@ -968,7 +972,7 @@ const ARMOR_PIECES = {};
 for (const material of ARMOR_MATERIALS) {
   for (const slot of ARMOR_SLOTS) {
     const id = armorType(material, slot);
-    const slotLabel = slot === "head" ? "Head Armor" : (slot === "chest" ? "Chest Armor" : "Leg Armor");
+    const slotLabel = slot === "head" ? "Helmet" : (slot === "chest" ? "Chestplate" : "Platelegs");
     ITEM_TYPES[id] = { name: `${materialLabel(material)} ${slotLabel}` };
     ARMOR_PIECES[id] = { slot, defBonus: ARMOR_MATERIAL_DEF[material] + ARMOR_SLOT_DEF[slot] };
   }
@@ -2049,10 +2053,21 @@ function renderEquipment(state) {
     el.appendChild(img);
   };
 
+  const setBadgeLabel = (el, itemType, fallback) => {
+    if (!el) return;
+    const txt = itemType ? (ITEM_TYPES[itemType]?.name ?? itemType) : fallback;
+    el.textContent = txt;
+    el.title = txt;
+  };
+
   setBadge(equipBadgeWeaponEl, equip.weapon ?? null);
   setBadge(equipBadgeHeadEl, equip.head ?? null);
   setBadge(equipBadgeTorsoEl, equip.chest ?? null);
   setBadge(equipBadgeLegsEl, equip.legs ?? null);
+  setBadgeLabel(equipBadgeLabelWeaponEl, equip.weapon ?? null, "Weapon");
+  setBadgeLabel(equipBadgeLabelHeadEl, equip.head ?? null, "Head");
+  setBadgeLabel(equipBadgeLabelTorsoEl, equip.chest ?? null, "Torso");
+  setBadgeLabel(equipBadgeLabelLegsEl, equip.legs ?? null, "Legs");
 }
 
 function unequipSlotToInventory(state, slot) {
@@ -3424,10 +3439,13 @@ const SPRITE_SOURCES = {
   shopkeeper: "./client/assets/shop_full.png",
   gold: "./client/assets/coins_full.png",
   potion: "./client/assets/potion_hp_full.png",
+  door_closed: "./client/assets/door_closed_full.png",
   surface_entrance: "./client/assets/surface_entrance_full.png",
   weapon_bronze_dagger: "./client/assets/bronze_dagger_full.png",
   weapon_bronze_sword: "./client/assets/bronze_sword_full.png",
   weapon_bronze_axe: "./client/assets/bronze_axe_full.png",
+  armor_bronze_chest: "./client/assets/bronze_chestplate_full.png",
+  armor_bronze_legs: "./client/assets/bronze_platelegs_full.png",
   armor_leather_chest: "./client/assets/leather_chest_full.png",
   armor_leather_legs: "./client/assets/leather_legs_full.png",
   weapon_iron_dagger: "./client/assets/iron_dagger_full.png",
@@ -3464,6 +3482,7 @@ function monsterSpriteId(type) {
   if (type === "goblin") return "goblin";
   if (type === "rat") return "rat";
   if (type === "rogue") return "rogue";
+  if (type === "slime") return "jelly_red";
   if (type === "jelly_green") return "jelly_green";
   if (type === "jelly_yellow") return "jelly_yellow";
   if (type === "jelly_red") return "jelly_red";
@@ -3484,6 +3503,8 @@ function itemSpriteId(ent) {
   if (ent.type === "weapon_bronze_dagger") return "weapon_bronze_dagger";
   if (ent.type === "weapon_bronze_sword") return "weapon_bronze_sword";
   if (ent.type === "weapon_bronze_axe") return "weapon_bronze_axe";
+  if (ent.type === "armor_bronze_chest") return "armor_bronze_chest";
+  if (ent.type === "armor_bronze_legs") return "armor_bronze_legs";
   if (ent.type === "weapon_iron_dagger") return "weapon_iron_dagger";
   if (ent.type === "weapon_iron_sword") return "weapon_iron_sword";
   if (ent.type === "weapon_iron_axe") return "weapon_iron_axe";
@@ -3547,6 +3568,7 @@ function tileGlyph(t) {
   return null;
 }
 function tileSpriteId(state, wx, wy, wz, t) {
+  if (t === DOOR_CLOSED) return "door_closed";
   if (t === STAIRS_DOWN && wz === SURFACE_LEVEL && wx === 0 && wy === 0) return "surface_entrance";
   if (t === STAIRS_UP && wz === 0) {
     const link = state.surfaceLink ?? resolveSurfaceLink(state);

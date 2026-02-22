@@ -597,17 +597,19 @@
         gap: 6px;
         margin: 0 0 8px 0;
       }
+      .equipSlot {
+        display: grid;
+        grid-template-rows: auto auto;
+        align-items: start;
+        gap: 3px;
+        min-width: 0;
+      }
       .equipBadge {
         border: 1px solid #2b3956;
         background: rgba(34, 48, 76, 0.9);
         border-radius: 12px;
-        min-height: 0;
         padding: 3px;
-        display: grid;
-        grid-template-rows: minmax(0, 1fr) auto;
-        align-content: stretch;
-        justify-items: stretch;
-        gap: 2px;
+        min-height: 0;
         overflow: hidden;
       }
       .equipBadgeIcon {
@@ -652,8 +654,11 @@
         letter-spacing: 0.25px;
         color: #d6e4ff;
         opacity: 0.92;
-        line-height: 1;
-        white-space: nowrap;
+        line-height: 1.15;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        width: 100%;
       }
       /* Inventory items are now direct buttons inside #invList */
       #invList > .invLabelBtn {
@@ -864,10 +869,10 @@
                   <button id="equipSectionToggle" class="invSectionToggle" type="button" aria-expanded="true">Equipment -</button>
                   <div id="equipSectionBody" class="invSectionBody">
                     <div id="equipBadges">
-                      <div class="equipBadge"><div class="equipBadgeIcon" id="equipBadgeWeapon"></div><div class="equipBadgeLabel">Weapon</div></div>
-                      <div class="equipBadge"><div class="equipBadgeIcon" id="equipBadgeHead"></div><div class="equipBadgeLabel">Head</div></div>
-                      <div class="equipBadge"><div class="equipBadgeIcon" id="equipBadgeTorso"></div><div class="equipBadgeLabel">Torso</div></div>
-                      <div class="equipBadge"><div class="equipBadgeIcon" id="equipBadgeLegs"></div><div class="equipBadgeLabel">Legs</div></div>
+                      <div class="equipSlot"><div class="equipBadge"><div class="equipBadgeIcon" id="equipBadgeWeapon"></div></div><div class="equipBadgeLabel" id="equipBadgeLabelWeapon">Weapon</div></div>
+                      <div class="equipSlot"><div class="equipBadge"><div class="equipBadgeIcon" id="equipBadgeHead"></div></div><div class="equipBadgeLabel" id="equipBadgeLabelHead">Head</div></div>
+                      <div class="equipSlot"><div class="equipBadge"><div class="equipBadgeIcon" id="equipBadgeTorso"></div></div><div class="equipBadgeLabel" id="equipBadgeLabelTorso">Torso</div></div>
+                      <div class="equipSlot"><div class="equipBadge"><div class="equipBadgeIcon" id="equipBadgeLegs"></div></div><div class="equipBadgeLabel" id="equipBadgeLabelLegs">Legs</div></div>
                     </div>
                   </div>
                   <button id="inventorySectionToggle" class="invSectionToggle" type="button" aria-expanded="true">Inventory -</button>
