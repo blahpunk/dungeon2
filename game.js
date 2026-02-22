@@ -2101,12 +2101,20 @@ function monstersTurn(state) {
 // Glyph font: slightly larger than tile size so characters/icons overlap cells a bit
 const GLYPH_FONT = `bold ${Math.floor(TILE * 1.12)}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace`;
 const MONSTER_SPRITE_SIZE = Math.round(TILE * 1.65);
-const goblinSprite = new Image();
-const ratSprite = new Image();
-let goblinSpriteProcessed = null;
-let ratSpriteProcessed = null;
-let goblinSpriteReady = false;
-let ratSpriteReady = false;
+const ITEM_SPRITE_SIZE = Math.round(TILE * 1.1);
+const SPRITE_SOURCES = {
+  goblin: "./client/assets/goblin_dagger_full.png",
+  rat: "./client/assets/rat_full.png",
+  key_red: "./client/assets/red_key_full.png",
+  key_blue: "./client/assets/blue_key_full.png",
+  key_green: "./client/assets/green_key_full.png",
+  chest_red: "./client/assets/red_chest_full.png",
+  chest_blue: "./client/assets/blue_chest_full.png",
+  chest_green: "./client/assets/green_chest_full.png",
+};
+const spriteImages = {};
+const spriteProcessed = {};
+const spriteReady = {};
 function buildSpriteTransparency(img) {
   const w = img.naturalWidth || img.width;
   const h = img.naturalHeight || img.height;
@@ -2169,18 +2177,38 @@ function buildSpriteTransparency(img) {
   tctx.drawImage(off, minX, minY, tw, th, 0, 0, tw, th);
   return trimmed;
 }
-goblinSprite.onload = () => {
-  goblinSpriteProcessed = buildSpriteTransparency(goblinSprite);
-  goblinSpriteReady = true;
-};
-goblinSprite.onerror = () => { goblinSpriteReady = false; };
-goblinSprite.src = "./client/assets/goblin_dagger_full.png";
-ratSprite.onload = () => {
-  ratSpriteProcessed = buildSpriteTransparency(ratSprite);
-  ratSpriteReady = true;
-};
-ratSprite.onerror = () => { ratSpriteReady = false; };
-ratSprite.src = "./client/assets/rat_full.png";
+function loadProcessedSprite(id, src) {
+  const img = new Image();
+  spriteImages[id] = img;
+  spriteProcessed[id] = null;
+  spriteReady[id] = false;
+  img.onload = () => {
+    spriteProcessed[id] = buildSpriteTransparency(img);
+    spriteReady[id] = true;
+  };
+  img.onerror = () => { spriteReady[id] = false; };
+  img.src = src;
+}
+for (const [id, src] of Object.entries(SPRITE_SOURCES)) loadProcessedSprite(id, src);
+function getSpriteIfReady(id) {
+  if (!id || !spriteReady[id]) return null;
+  return spriteProcessed[id] ?? spriteImages[id] ?? null;
+}
+function monsterSpriteId(type) {
+  if (type === "goblin") return "goblin";
+  if (type === "rat") return "rat";
+  return null;
+}
+function itemSpriteId(ent) {
+  if (!ent?.type) return null;
+  if (ent.type === "key_red" || ent.type === "key_blue" || ent.type === "key_green") return ent.type;
+  if (ent.type === "chest" && ent.locked) {
+    if (ent.keyType === "key_red") return "chest_red";
+    if (ent.keyType === "key_blue") return "chest_blue";
+    if (ent.keyType === "key_green") return "chest_green";
+  }
+  return null;
+}
 
 function drawGlyph(ctx2d, sx, sy, glyph, color = "#e6e6e6") {
   const cx = sx * TILE + TILE / 2;
@@ -2194,9 +2222,14 @@ function drawGlyph(ctx2d, sx, sy, glyph, color = "#e6e6e6") {
   ctx2d.restore();
 }
 function drawCenteredSprite(ctx2d, sx, sy, img, w, h) {
-  const px = sx * TILE + Math.floor((TILE - w) / 2);
-  const py = sy * TILE + Math.floor((TILE - h) / 2);
-  ctx2d.drawImage(img, px, py, w, h);
+  const iw = img?.width || 1;
+  const ih = img?.height || 1;
+  const scale = Math.min(w, h) / Math.max(iw, ih);
+  const dw = Math.max(1, Math.round(iw * scale));
+  const dh = Math.max(1, Math.round(ih * scale));
+  const px = sx * TILE + Math.floor((TILE - dw) / 2);
+  const py = sy * TILE + Math.floor((TILE - dh) / 2);
+  ctx2d.drawImage(img, px, py, dw, dh);
 }
 function tileGlyph(t) {
   if (t === STAIRS_DOWN) return { g: "▼", c: "#d6f5d6" };
@@ -2237,6 +2270,7 @@ function draw(state) {
   const { world, player, seen, visible } = state;
   const { monsters, items } = buildOccupancy(state);
   const theme = themeForDepth(player.z);
+  const deferredItemSprites = [];
   const deferredMonsterSprites = [];
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -2353,22 +2387,20 @@ function draw(state) {
 
         if (ik) {
           const ent = state.entities.get(ik);
-          const gi = itemGlyph(ent?.type);
-          if (gi) drawGlyph(ctx, sx, sy, gi.g, gi.c);
+          const itemSprite = getSpriteIfReady(itemSpriteId(ent));
+          if (itemSprite) {
+            deferredItemSprites.push({ sx, sy, img: itemSprite });
+          } else {
+            const gi = itemGlyph(ent?.type);
+            if (gi) drawGlyph(ctx, sx, sy, gi.g, gi.c);
+          }
         }
 
         if (mk) {
           const ent = state.entities.get(mk);
-          if (ent?.type === "goblin" && goblinSpriteReady) {
-            deferredMonsterSprites.push({
-              sx, sy,
-              img: goblinSpriteProcessed ?? goblinSprite,
-            });
-          } else if (ent?.type === "rat" && ratSpriteReady) {
-            deferredMonsterSprites.push({
-              sx, sy,
-              img: ratSpriteProcessed ?? ratSprite,
-            });
+          const monsterSprite = getSpriteIfReady(monsterSpriteId(ent?.type));
+          if (monsterSprite) {
+            deferredMonsterSprites.push({ sx, sy, img: monsterSprite });
           } else {
             const gm = monsterGlyph(ent?.type);
             if (gm) drawGlyph(ctx, sx, sy, gm.g, gm.c);
@@ -2378,6 +2410,9 @@ function draw(state) {
     }
   }
 
+  for (const spr of deferredItemSprites) {
+    drawCenteredSprite(ctx, spr.sx, spr.sy, spr.img, ITEM_SPRITE_SIZE, ITEM_SPRITE_SIZE);
+  }
   // Draw oversized monster sprites after terrain so neighboring tiles don't overpaint overflow.
   for (const spr of deferredMonsterSprites) {
     drawCenteredSprite(ctx, spr.sx, spr.sy, spr.img, MONSTER_SPRITE_SIZE, MONSTER_SPRITE_SIZE);
