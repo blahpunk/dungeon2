@@ -8,7 +8,10 @@
 const CHUNK = 32;
 const TILE = 256;
 const BASE_VIEW_RADIUS = 14;
-const DESKTOP_TARGET_TILE_PX = 42;
+// Slight desktop zoom-out (~5%) so more dungeon tiles are visible.
+const DESKTOP_TARGET_TILE_PX = 40;
+// Slight mobile zoom-in (~5%) so tiles render a bit larger.
+const MOBILE_VIEW_RADIUS = Math.max(6, Math.round(BASE_VIEW_RADIUS * 0.95));
 
 const MINI_SCALE = 3;
 const MINI_RADIUS = 40;
@@ -139,8 +142,8 @@ function updateViewportMetrics(force = false) {
   viewportSig = sig;
 
   if (mobile || wrapW <= 2 || wrapH <= 2) {
-    viewRadiusX = BASE_VIEW_RADIUS;
-    viewRadiusY = BASE_VIEW_RADIUS;
+    viewRadiusX = MOBILE_VIEW_RADIUS;
+    viewRadiusY = MOBILE_VIEW_RADIUS;
   } else {
     const tilesX = Math.max(BASE_VIEW_RADIUS * 2 + 1, Math.floor(wrapW / DESKTOP_TARGET_TILE_PX));
     const tilesY = Math.max(BASE_VIEW_RADIUS * 2 + 1, Math.floor(wrapH / DESKTOP_TARGET_TILE_PX));
