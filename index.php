@@ -1021,7 +1021,7 @@
       </div>
     </div>
 
-    <script type="module" src="./game.js"></script>
+    <script type="module" src="./game.js?v=32"></script>
     <!-- Mobile touch controls (table: left = 3x3 directional, right = context buttons) -->
     <div id="touchControls" aria-hidden="false">
       <div id="touchTable">
