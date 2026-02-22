@@ -835,10 +835,32 @@ function monsterStatsForDepth(type, z) {
   return { ...spec, maxHp, atkLo, atkHi };
 }
 
-const WEAPON_MATERIALS = ["bronze", "iron", "steel"];
+const METAL_TIERS = [
+  { id: "wood", name: "Wood", color: "#8B5A2B", atkBonus: -30, defBonus: 0, unlockDepth: 0, rampDepth: 2, maxWeight: 42 },
+  { id: "bronze", name: "Bronze", color: "#CD7F32", atkBonus: 0, defBonus: 40, unlockDepth: 0, rampDepth: 2, maxWeight: 38 },
+  { id: "iron", name: "Iron", color: "#5A5F66", atkBonus: 120, defBonus: 150, unlockDepth: 0, rampDepth: 3, maxWeight: 34 },
+  { id: "steel", name: "Steel", color: "#B0B7C1", atkBonus: 260, defBonus: 250, unlockDepth: 3, rampDepth: 4, maxWeight: 28 },
+  { id: "silversteel", name: "Silversteel", color: "#E8F0FF", atkBonus: 390, defBonus: 360, unlockDepth: 8, rampDepth: 5, maxWeight: 20 },
+  { id: "storm_alloy", name: "Storm Alloy", color: "#4DA6FF", atkBonus: 530, defBonus: 480, unlockDepth: 14, rampDepth: 6, maxWeight: 16 },
+  { id: "sunforged_alloy", name: "Sunforged Alloy", color: "#FFC94D", atkBonus: 680, defBonus: 610, unlockDepth: 21, rampDepth: 7, maxWeight: 13 },
+  { id: "embersteel", name: "Embersteel", color: "#D9381E", atkBonus: 840, defBonus: 750, unlockDepth: 29, rampDepth: 8, maxWeight: 11 },
+  { id: "star_metal", name: "Star Metal", color: "#6C7B8B", atkBonus: 1010, defBonus: 900, unlockDepth: 38, rampDepth: 9, maxWeight: 9 },
+  { id: "nightsteel", name: "Nightsteel", color: "#1A1F2E", atkBonus: 1190, defBonus: 1060, unlockDepth: 49, rampDepth: 10, maxWeight: 8 },
+  { id: "heartstone_alloy", name: "Heartstone Alloy", color: "#C43C7A", atkBonus: 1380, defBonus: 1230, unlockDepth: 61, rampDepth: 11, maxWeight: 7 },
+  { id: "aether_alloy", name: "Aether Alloy", color: "#E0FFF7", atkBonus: 1580, defBonus: 1410, unlockDepth: 74, rampDepth: 12, maxWeight: 6 },
+  { id: "prime_metal", name: "Prime Metal", color: "#F4F1D0", atkBonus: 1790, defBonus: 1600, unlockDepth: 88, rampDepth: 14, maxWeight: 5 },
+  { id: "nullmetal", name: "Nullmetal", color: "#2B2B2B", atkBonus: 2010, defBonus: 1800, unlockDepth: 103, rampDepth: 16, maxWeight: 4 },
+  { id: "dungeoncore_alloy", name: "Dungeoncore Alloy", color: "#6B2DFF", atkBonus: 2240, defBonus: 2010, unlockDepth: 109, rampDepth: 18, maxWeight: 3 },
+  { id: "azhurite_prime", name: "Azhurite Prime", color: "#00BFFF", atkBonus: 2480, defBonus: 2230, unlockDepth: 114, rampDepth: 20, maxWeight: 2 },
+  { id: "deepcore_metal", name: "Deepcore Metal", color: "#8B0000", atkBonus: 2730, defBonus: 2460, unlockDepth: 118, rampDepth: 22, maxWeight: 2 },
+  { id: "singularity_steel", name: "Singularity Steel", color: "#7A00CC", atkBonus: 2990, defBonus: 2700, unlockDepth: 120, rampDepth: 24, maxWeight: 1 },
+];
+const MATERIAL_BY_ID = Object.fromEntries(METAL_TIERS.map((m) => [m.id, m]));
+const MATERIAL_COLOR_BY_ID = Object.fromEntries(METAL_TIERS.map((m) => [m.id, m.color]));
+const WEAPON_MATERIALS = METAL_TIERS.map((m) => m.id);
 const WEAPON_KINDS = ["dagger", "sword", "axe"];
-const ARMOR_MATERIALS = ["leather", "iron", "steel"];
-const ARMOR_SLOTS = ["chest", "legs"];
+const ARMOR_MATERIALS = METAL_TIERS.map((m) => m.id);
+const ARMOR_SLOTS = ["head", "chest", "legs"];
 
 const WEAPON_KIND_LABEL = {
   dagger: "Dagger",
@@ -850,22 +872,17 @@ const WEAPON_KIND_ATK = {
   sword: 150,
   axe: 210,
 };
-const WEAPON_MATERIAL_ATK = {
-  bronze: 0,
-  iron: 120,
-  steel: 260,
-};
-const ARMOR_MATERIAL_DEF = {
-  leather: 60,
-  iron: 150,
-  steel: 250,
-};
+const WEAPON_MATERIAL_ATK = Object.fromEntries(METAL_TIERS.map((m) => [m.id, m.atkBonus]));
+const ARMOR_MATERIAL_DEF = Object.fromEntries(METAL_TIERS.map((m) => [m.id, m.defBonus]));
 const ARMOR_SLOT_DEF = {
+  head: 70,
   chest: 130,
   legs: 90,
 };
 
 function capWord(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+function titleFromId(s) { return String(s ?? "").split("_").map(capWord).join(" "); }
+function materialLabel(material) { return MATERIAL_BY_ID[material]?.name ?? titleFromId(material); }
 function weaponType(material, kind) { return `weapon_${material}_${kind}`; }
 function armorType(material, slot) { return `armor_${material}_${slot}`; }
 
@@ -886,7 +903,7 @@ const WEAPONS = {};
 for (const material of WEAPON_MATERIALS) {
   for (const kind of WEAPON_KINDS) {
     const id = weaponType(material, kind);
-    ITEM_TYPES[id] = { name: `${capWord(material)} ${WEAPON_KIND_LABEL[kind]}` };
+    ITEM_TYPES[id] = { name: `${materialLabel(material)} ${WEAPON_KIND_LABEL[kind]}` };
     WEAPONS[id] = { atkBonus: WEAPON_KIND_ATK[kind] + WEAPON_MATERIAL_ATK[material] };
   }
 }
@@ -895,8 +912,8 @@ const ARMOR_PIECES = {};
 for (const material of ARMOR_MATERIALS) {
   for (const slot of ARMOR_SLOTS) {
     const id = armorType(material, slot);
-    const slotLabel = slot === "chest" ? "Chest Armor" : "Leg Armor";
-    ITEM_TYPES[id] = { name: `${capWord(material)} ${slotLabel}` };
+    const slotLabel = slot === "head" ? "Head Armor" : (slot === "chest" ? "Chest Armor" : "Leg Armor");
+    ITEM_TYPES[id] = { name: `${materialLabel(material)} ${slotLabel}` };
     ARMOR_PIECES[id] = { slot, defBonus: ARMOR_MATERIAL_DEF[material] + ARMOR_SLOT_DEF[slot] };
   }
 }
@@ -908,7 +925,9 @@ const LEGACY_ITEM_MAP = {
   weapon_mace: weaponType("iron", "axe"),
   weapon_greatsword: weaponType("steel", "sword"),
   weapon_runeblade: weaponType("steel", "axe"),
-  armor_leather: armorType("leather", "chest"),
+  armor_leather: armorType("wood", "chest"),
+  armor_leather_chest: armorType("wood", "chest"),
+  armor_leather_legs: armorType("wood", "legs"),
   armor_chain: armorType("iron", "chest"),
   armor_plate: armorType("steel", "chest"),
 };
@@ -927,20 +946,71 @@ function weightedPick(rng, entries) {
   return entries[entries.length - 1].id;
 }
 
+function materialWeightsForDepth(z) {
+  const depth = Math.max(0, Math.floor(z));
+  // Requested early-game mix:
+  // depth 0: wood + bronze + some iron
+  // depth 1-3: progressively more iron
+  // depth 3-4: steel starts appearing
+  if (depth === 0) return [
+    { id: "wood", w: 44 },
+    { id: "bronze", w: 36 },
+    { id: "iron", w: 20 },
+  ];
+  if (depth === 1) return [
+    { id: "wood", w: 28 },
+    { id: "bronze", w: 30 },
+    { id: "iron", w: 36 },
+    { id: "steel", w: 6 },
+  ];
+  if (depth === 2) return [
+    { id: "wood", w: 18 },
+    { id: "bronze", w: 24 },
+    { id: "iron", w: 45 },
+    { id: "steel", w: 13 },
+  ];
+  if (depth === 3) return [
+    { id: "wood", w: 12 },
+    { id: "bronze", w: 16 },
+    { id: "iron", w: 44 },
+    { id: "steel", w: 22 },
+    { id: "silversteel", w: 6 },
+  ];
+  if (depth === 4) return [
+    { id: "wood", w: 8 },
+    { id: "bronze", w: 12 },
+    { id: "iron", w: 34 },
+    { id: "steel", w: 32 },
+    { id: "silversteel", w: 14 },
+  ];
+
+  const unlocked = [];
+  for (let i = 0; i < METAL_TIERS.length; i++) {
+    const t = METAL_TIERS[i];
+    if (depth < t.unlockDepth) continue;
+    let w = 1 + Math.floor((depth - t.unlockDepth) / Math.max(1, t.rampDepth));
+    w = Math.min(t.maxWeight, w);
+    unlocked.push({ id: t.id, w, idx: i });
+  }
+  if (!unlocked.length) return [{ id: "wood", w: 1 }];
+
+  const highestIdx = unlocked[unlocked.length - 1].idx;
+  return unlocked.map((entry) => {
+    let w = entry.w;
+    const gap = highestIdx - entry.idx;
+    if (gap > 2) w = Math.max(1, w - (gap - 2) * 2);
+    if (entry.idx >= 12) w = Math.max(1, Math.floor(w * 0.8));
+    if (entry.idx >= 15) w = Math.max(1, Math.floor(w * 0.65));
+    return { id: entry.id, w };
+  });
+}
+
 function weaponMaterialWeightsForDepth(z) {
-  if (z <= 0) return [{ id: "bronze", w: 100 }];
-  if (z <= 2) return [{ id: "bronze", w: 72 }, { id: "iron", w: 28 }];
-  if (z <= 4) return [{ id: "bronze", w: 48 }, { id: "iron", w: 42 }, { id: "steel", w: 10 }];
-  if (z <= 8) return [{ id: "bronze", w: 28 }, { id: "iron", w: 47 }, { id: "steel", w: 25 }];
-  return [{ id: "bronze", w: 14 }, { id: "iron", w: 46 }, { id: "steel", w: 40 }];
+  return materialWeightsForDepth(z);
 }
 
 function armorMaterialWeightsForDepth(z) {
-  if (z <= 0) return [{ id: "leather", w: 100 }];
-  if (z <= 2) return [{ id: "leather", w: 70 }, { id: "iron", w: 30 }];
-  if (z <= 4) return [{ id: "leather", w: 46 }, { id: "iron", w: 44 }, { id: "steel", w: 10 }];
-  if (z <= 8) return [{ id: "leather", w: 24 }, { id: "iron", w: 50 }, { id: "steel", w: 26 }];
-  return [{ id: "leather", w: 12 }, { id: "iron", w: 49 }, { id: "steel", w: 39 }];
+  return materialWeightsForDepth(z);
 }
 
 function weaponForDepth(z, rng = Math.random) {
@@ -955,7 +1025,11 @@ function weaponForDepth(z, rng = Math.random) {
 
 function armorForDepth(z, rng = Math.random) {
   const material = weightedPick(rng, armorMaterialWeightsForDepth(z));
-  const slot = rng() < 0.56 ? "chest" : "legs";
+  const slot = weightedPick(rng, [
+    { id: "head", w: 20 },
+    { id: "chest", w: 45 },
+    { id: "legs", w: 35 },
+  ]);
   return armorType(material, slot);
 }
 
@@ -991,30 +1065,27 @@ function shopProgressScore(state) {
 
 function shopCatalogForDepth(depth) {
   const d = Math.max(0, depth);
-  const items = [{ type: "potion", w: 12 }];
+  const items = [{ type: "potion", w: Math.max(6, 14 - Math.floor(d / 16)) }];
 
-  for (const kind of WEAPON_KINDS) {
-    items.push({ type: weaponType("bronze", kind), w: d <= 2 ? 12 : d <= 5 ? 9 : 6 });
-  }
-  for (const slot of ARMOR_SLOTS) {
-    items.push({ type: armorType("leather", slot), w: d <= 2 ? 11 : d <= 5 ? 8 : 5 });
-  }
-
-  const ironWeight = d <= 0 ? 0 : d <= 2 ? 6 : d <= 6 ? 10 : 14;
-  for (const kind of WEAPON_KINDS) {
-    if (ironWeight > 0) items.push({ type: weaponType("iron", kind), w: ironWeight });
-  }
-  for (const slot of ARMOR_SLOTS) {
-    if (ironWeight > 0) items.push({ type: armorType("iron", slot), w: Math.max(1, ironWeight - 2) });
-  }
-
-  const steelWeight = d < 3 ? 0 : d < 6 ? 4 : d < 10 ? 8 : 12;
-  if (steelWeight > 0) {
+  const weaponMats = weaponMaterialWeightsForDepth(d);
+  for (const mat of weaponMats) {
     for (const kind of WEAPON_KINDS) {
-      items.push({ type: weaponType("steel", kind), w: steelWeight });
+      const mul = kind === "sword" ? 1.1 : (kind === "axe" ? 1.0 : 0.95);
+      items.push({
+        type: weaponType(mat.id, kind),
+        w: Math.max(1, Math.round(mat.w * mul)),
+      });
     }
+  }
+
+  const armorMats = armorMaterialWeightsForDepth(d);
+  for (const mat of armorMats) {
     for (const slot of ARMOR_SLOTS) {
-      items.push({ type: armorType("steel", slot), w: steelWeight });
+      const mul = slot === "chest" ? 1 : 0.92;
+      items.push({
+        type: armorType(mat.id, slot),
+        w: Math.max(1, Math.round(mat.w * mul)),
+      });
     }
   }
 
@@ -1763,6 +1834,7 @@ function recalcDerivedStats(state) {
   const p = state.player;
   const equip = p.equip ?? {};
   const weapon = p.equip.weapon ? WEAPONS[p.equip.weapon] : null;
+  const headArmor = equip.head ? ARMOR_PIECES[equip.head] : null;
   const chestArmor = equip.chest ? ARMOR_PIECES[equip.chest] : null;
   const legsArmor = equip.legs ? ARMOR_PIECES[equip.legs] : null;
 
@@ -1771,7 +1843,7 @@ function recalcDerivedStats(state) {
     .reduce((s, e) => s + e.atkDelta, 0);
 
   p.atkBonus = (weapon?.atkBonus ?? 0) + effAtk;
-  p.defBonus = (chestArmor?.defBonus ?? 0) + (legsArmor?.defBonus ?? 0);
+  p.defBonus = (headArmor?.defBonus ?? 0) + (chestArmor?.defBonus ?? 0) + (legsArmor?.defBonus ?? 0);
 
   p.atkLo = 200 + Math.floor((p.level - 1) / 2) * 100;
   p.atkHi = 500 + Math.floor((p.level - 1) / 2) * 100;
@@ -1781,10 +1853,11 @@ function renderEquipment(state) {
   const p = state.player;
   const equip = p.equip ?? {};
   const w = equip.weapon ? (ITEM_TYPES[equip.weapon]?.name ?? equip.weapon) : "(none)";
+  const head = equip.head ? (ITEM_TYPES[equip.head]?.name ?? equip.head) : "(none)";
   const chest = equip.chest ? (ITEM_TYPES[equip.chest]?.name ?? equip.chest) : "(none)";
   const legs = equip.legs ? (ITEM_TYPES[equip.legs]?.name ?? equip.legs) : "(none)";
   equipTextEl.textContent =
-    `Weapon: ${w}\nChest:  ${chest}\nLegs:   ${legs}\nATK bonus: ${p.atkBonus >= 0 ? "+" : ""}${p.atkBonus}  DEF: +${p.defBonus}`;
+    `Weapon: ${w}\nHead:   ${head}\nChest:  ${chest}\nLegs:   ${legs}\nATK bonus: ${p.atkBonus >= 0 ? "+" : ""}${p.atkBonus}  DEF: +${p.defBonus}`;
 
   const setBadge = (el, itemType) => {
     if (!el) return;
@@ -2023,7 +2096,7 @@ function makeNewGame(seedStr = randomSeedString()) {
     atkBonus: 0,
     defBonus: 0,
     gold: 0,
-    equip: { weapon: null, chest: null, legs: null },
+    equip: { weapon: null, head: null, chest: null, legs: null },
     effects: [],
   };
 
@@ -3293,6 +3366,13 @@ function tileSpriteId(state, wx, wy, wz, t) {
   }
   return null;
 }
+function materialIdFromItemType(type) {
+  if (!type || typeof type !== "string") return null;
+  if (!type.startsWith("weapon_") && !type.startsWith("armor_")) return null;
+  const parts = type.split("_");
+  if (parts.length < 3) return null;
+  return parts.slice(1, -1).join("_");
+}
 function itemGlyph(type) {
   // Updated colors: potions magenta, armor brown, weapons silver, chests yellow, gold gold
   if (type === "potion") return { g: "!", c: "#ff66cc" };
@@ -3303,8 +3383,14 @@ function itemGlyph(type) {
   if (type === "shopkeeper") return { g: "@", c: "#ffd166" };
   if (type === "chest") return { g: "\u25A3", c: "#ffd700" };
   if (type === "shrine") return { g: "\u2726", c: "#b8f2e6" };
-  if (type?.startsWith("weapon_")) return { g: "\u2020", c: "#cfcfcf" };
-  if (type?.startsWith("armor_")) return { g: "\u26E8", c: "#8b5a2b" };
+  if (type?.startsWith("weapon_")) {
+    const matId = materialIdFromItemType(type);
+    return { g: "\u2020", c: MATERIAL_COLOR_BY_ID[matId] ?? "#cfcfcf" };
+  }
+  if (type?.startsWith("armor_")) {
+    const matId = materialIdFromItemType(type);
+    return { g: "\u26E8", c: MATERIAL_COLOR_BY_ID[matId] ?? "#8b5a2b" };
+  }
   return { g: "\u2022", c: "#f4d35e" };
 }
 function arrowForVector(dx, dy) {
@@ -3873,13 +3959,13 @@ function normalizeDynamicEntries(items) {
 }
 
 function normalizeEquip(equip) {
-  const out = { weapon: null, chest: null, legs: null };
+  const out = { weapon: null, head: null, chest: null, legs: null };
   const e = equip ?? {};
 
   const weapon = normalizeItemType(e.weapon ?? null);
   if (weapon && WEAPONS[weapon]) out.weapon = weapon;
 
-  const candidates = [e.chest, e.legs, e.armor]
+  const candidates = [e.head, e.chest, e.legs, e.armor]
     .map((x) => normalizeItemType(x))
     .filter(Boolean);
 
