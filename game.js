@@ -29,8 +29,8 @@ const XP_SCALE = 100;
 const COMBAT_SCALE = 100;
 const XP_DAMAGE_PER_LEGACY_DAMAGE = 6;
 const XP_KILL_BONUS_PER_MONSTER_XP = 12;
-const STAIRS_DOWN_SPAWN_CHANCE = 0.32;
-const STAIRS_UP_SPAWN_CHANCE = 0.26;
+const STAIRS_DOWN_SPAWN_CHANCE = 0.48;
+const STAIRS_UP_SPAWN_CHANCE = 0.40;
 const EDGE_SHADE_PX = Math.max(2, Math.floor(TILE * 0.12));
 const CORNER_CHAMFER_PX = Math.max(3, Math.floor(TILE * 0.22));
 const EDGE_SOFT_PX = Math.max(2, Math.floor(TILE * 0.08));
@@ -727,7 +727,11 @@ const MONSTER_TYPES = {
   goblin:       { name: "Goblin",       maxHp: 1000, atkLo: 200, atkHi: 400, xp: 4,  glyph: "g" },
   slime:        { name: "Slime",        maxHp: 1400, atkLo: 200, atkHi: 500, xp: 5,  glyph: "s" },
   rogue:        { name: "Rogue",        maxHp: 1300, atkLo: 260, atkHi: 560, xp: 7,  glyph: "r" },
-  jelly:        { name: "Jelly",        maxHp: 1900, atkLo: 240, atkHi: 620, xp: 8,  glyph: "j" },
+  jelly_green:  { name: "Jelly",        maxHp: 1200, atkLo: 180, atkHi: 420, xp: 5,  glyph: "j" },
+  jelly_yellow: { name: "Jelly",        maxHp: 1800, atkLo: 250, atkHi: 620, xp: 8,  glyph: "j" },
+  jelly_red:    { name: "Jelly",        maxHp: 2500, atkLo: 360, atkHi: 820, xp: 11, glyph: "j" },
+  // Backward-compat alias for older saves.
+  jelly:        { name: "Jelly",        maxHp: 1800, atkLo: 250, atkHi: 620, xp: 8,  glyph: "j" },
   giant_spider: { name: "Giant Spider", maxHp: 2200, atkLo: 320, atkHi: 720, xp: 10, glyph: "S" },
   skeleton:     { name: "Skeleton",     maxHp: 1800, atkLo: 300, atkHi: 600, xp: 8,  glyph: "k" },
   archer:       { name: "Archer",       maxHp: 1200, atkLo: 200, atkHi: 400, xp: 7,  glyph: "a", range: 6, cdTurns: 2 },
@@ -1160,11 +1164,11 @@ function weightedChoice(rng, entries) {
   return entries[entries.length - 1].id;
 }
 function monsterTableForDepth(z) {
-  if (z <= 1) return [{ id: "rat", w: 6 }, { id: "goblin", w: 4 }];
-  if (z <= 3) return [{ id: "rat", w: 3 }, { id: "goblin", w: 5 }, { id: "rogue", w: 2 }, { id: "jelly", w: 2 }];
-  if (z <= 6) return [{ id: "goblin", w: 3 }, { id: "slime", w: 4 }, { id: "rogue", w: 3 }, { id: "jelly", w: 3 }, { id: "giant_spider", w: 2 }];
-  if (z <= 10) return [{ id: "slime", w: 3 }, { id: "rogue", w: 3 }, { id: "jelly", w: 4 }, { id: "giant_spider", w: 4 }, { id: "skeleton", w: 4 }, { id: "archer", w: 2 }];
-  return [{ id: "rogue", w: 2 }, { id: "jelly", w: 4 }, { id: "giant_spider", w: 5 }, { id: "skeleton", w: 5 }, { id: "archer", w: 3 }];
+  if (z <= 1) return [{ id: "rat", w: 5 }, { id: "goblin", w: 3 }, { id: "jelly_green", w: 3 }];
+  if (z <= 3) return [{ id: "rat", w: 3 }, { id: "goblin", w: 5 }, { id: "rogue", w: 2 }, { id: "jelly_yellow", w: 2 }];
+  if (z <= 5) return [{ id: "goblin", w: 3 }, { id: "slime", w: 4 }, { id: "rogue", w: 3 }, { id: "jelly_yellow", w: 3 }, { id: "jelly_red", w: 2 }, { id: "giant_spider", w: 2 }];
+  if (z <= 10) return [{ id: "slime", w: 3 }, { id: "rogue", w: 3 }, { id: "jelly_red", w: 5 }, { id: "giant_spider", w: 4 }, { id: "skeleton", w: 4 }, { id: "archer", w: 2 }];
+  return [{ id: "rogue", w: 2 }, { id: "jelly_red", w: 6 }, { id: "giant_spider", w: 5 }, { id: "skeleton", w: 5 }, { id: "archer", w: 3 }];
 }
 
 function keyTypeForDepth(z, rng) {
@@ -1343,17 +1347,26 @@ function resolveContextAction(state, occupancy = null) {
   const p = state.player;
   if (p.dead) return null;
 
+  const here = state.world.getTile(p.x, p.y, p.z);
+  if (here === STAIRS_DOWN) return { type: "stairs-down", label: "Descend Stairs", run: () => tryUseStairs(state, "down") };
+  if (here === STAIRS_UP) return { type: "stairs-up", label: "Ascend Stairs", run: () => tryUseStairs(state, "up") };
+
   const occ = occupancy ?? buildOccupancy(state);
-  const itemId = occ.items.get(keyXYZ(p.x, p.y, p.z));
-  if (itemId) {
-    const ent = state.entities.get(itemId);
-    if (ent?.type === "shopkeeper") {
-      return { type: "shop", label: "Shop", run: () => interactShopkeeper(state) };
+  const itemsHere = getItemsAt(state, p.x, p.y, p.z);
+  if (itemsHere.length) {
+    const shop = itemsHere.find((e) => e.type === "shopkeeper");
+    if (shop) return { type: "shop", label: "Open Shop", run: () => interactShopkeeper(state) };
+
+    const takeable = itemsHere.filter((e) => isDirectlyTakeableItem(e.type));
+    if (takeable.length) {
+      const target = takeable[0];
+      const nm = titleCaseLowerLabel(ITEM_TYPES[target.type]?.name ?? target.type);
+      const more = takeable.length > 1 ? ` (+${takeable.length - 1} more)` : "";
+      return { type: "pickup", label: `Take ${nm}${more}`, run: () => pickup(state) };
     }
-    if (ent?.type === "shrine") {
-      return { type: "shrine", label: "Pray", run: () => interactShrine(state) };
-    }
-    return { type: "pickup", label: "Pick Up", run: () => pickup(state) };
+
+    const shrine = itemsHere.find((e) => e.type === "shrine");
+    if (shrine) return { type: "shrine", label: "Pray at Shrine", run: () => interactShrine(state) };
   }
 
   const dirs = [[0,-1],[1,0],[0,1],[-1,0]];
@@ -1486,25 +1499,68 @@ function renderInventory(state) {
     invListEl.appendChild(div);
     return;
   }
-  state.inv.slice(0, 9).forEach((it, idx) => {
+  getInventoryDisplayEntries(state).slice(0, 9).forEach((entry, idx) => {
+    const it = entry.item;
+    const invIdx = entry.invIndex;
     const nm = ITEM_TYPES[it.type]?.name ?? it.type;
     const btn = document.createElement("button");
     btn.className = 'invLabelBtn';
     btn.type = 'button';
-    btn.textContent = `${idx + 1}. ${nm}${isStackable(it.type) ? ` x${it.amount}` : ""}`;
 
-    const invoke = () => useInventoryIndex(state, idx);
+    const row = document.createElement("span");
+    row.className = "invRow";
+
+    const iconWrap = document.createElement("span");
+    iconWrap.className = "invIconWrap";
+    const icon = inventoryIconNode(it.type);
+    if (icon) iconWrap.appendChild(icon);
+
+    const label = document.createElement("span");
+    label.className = "invLabelText";
+    label.textContent = `${idx + 1}. ${nm}${isStackable(it.type) ? ` x${it.amount}` : ""}`;
+
+    row.appendChild(iconWrap);
+    row.appendChild(label);
+    btn.appendChild(row);
+
+    const invoke = () => useInventoryIndex(state, invIdx);
     const clickHandler = (e) => { e.stopPropagation(); invoke(); };
     btn.addEventListener('click', clickHandler);
     btn.addEventListener('touchstart', (e) => { e.stopPropagation(); e.preventDefault(); invoke(); }, { passive: false });
     btn.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      takeTurn(state, dropInventoryIndex(state, idx));
+      takeTurn(state, dropInventoryIndex(state, invIdx));
     });
 
     invListEl.appendChild(btn);
   });
+}
+
+function getInventoryDisplayEntries(state) {
+  const entries = state.inv.map((item, invIndex) => ({
+    item,
+    invIndex,
+    priority: item.type === "potion" ? 0 : 1,
+  }));
+  entries.sort((a, b) => (a.priority - b.priority) || (a.invIndex - b.invIndex));
+  return entries;
+}
+
+function inventoryIconNode(type) {
+  const spriteId = itemSpriteId({ type });
+  if (spriteId && SPRITE_SOURCES[spriteId]) {
+    const img = document.createElement("img");
+    img.src = SPRITE_SOURCES[spriteId];
+    img.alt = "";
+    return img;
+  }
+  const glyphInfo = itemGlyph(type);
+  const glyph = document.createElement("span");
+  glyph.className = "invIconGlyph";
+  glyph.textContent = glyphInfo?.g ?? "?";
+  glyph.style.color = glyphInfo?.c ?? "#e6e6e6";
+  return glyph;
 }
 
 function resolveSurfaceLink(state) {
@@ -1749,6 +1805,35 @@ function buildOccupancy(state) {
     else if (e.kind === "item") items.set(k, e.id);
   }
   return { monsters, items };
+}
+
+function getItemsAt(state, x, y, z) {
+  const items = [];
+  for (const e of state.entities.values()) {
+    if (e.kind !== "item") continue;
+    if (e.x !== x || e.y !== y || e.z !== z) continue;
+    items.push(e);
+  }
+  return items;
+}
+
+function findItemAtByType(state, x, y, z, type) {
+  for (const e of state.entities.values()) {
+    if (e.kind !== "item") continue;
+    if (e.type !== type) continue;
+    if (e.x === x && e.y === y && e.z === z) return e;
+  }
+  return null;
+}
+
+function isDirectlyTakeableItem(type) {
+  return type !== "shrine" && type !== "shopkeeper";
+}
+
+function titleCaseLowerLabel(name) {
+  const s = String(name ?? "").trim();
+  if (!s) return "item";
+  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 }
 
 // ---------- Visibility ----------
@@ -2138,11 +2223,10 @@ function pickup(state) {
   const p = state.player;
   if (p.dead) return false;
 
-  const { items } = buildOccupancy(state);
-  const id = items.get(keyXYZ(p.x, p.y, p.z));
-  if (!id) { pushLog(state, "Nothing here to pick up."); return false; }
+  const itemsHere = getItemsAt(state, p.x, p.y, p.z);
+  if (!itemsHere.length) { pushLog(state, "Nothing here to pick up."); return false; }
 
-  const it = state.entities.get(id);
+  const it = itemsHere.find((e) => isDirectlyTakeableItem(e.type)) ?? itemsHere[0];
   if (!it) return false;
 
   if (it.type === "gold") {
@@ -2301,11 +2385,7 @@ function interactShopkeeper(state) {
   const p = state.player;
   if (p.dead) return null;
 
-  const { items } = buildOccupancy(state);
-  const id = items.get(keyXYZ(p.x, p.y, p.z));
-  if (!id) return null;
-
-  const it = state.entities.get(id);
+  const it = findItemAtByType(state, p.x, p.y, p.z, "shopkeeper");
   if (!it || it.type !== "shopkeeper") return null;
 
   const refreshed = refreshShopStock(state, false);
@@ -2328,11 +2408,7 @@ function interactShrine(state) {
   const p = state.player;
   if (p.dead) return false;
 
-  const { items } = buildOccupancy(state);
-  const id = items.get(keyXYZ(p.x, p.y, p.z));
-  if (!id) { pushLog(state, "Nothing to interact with here."); return false; }
-
-  const it = state.entities.get(id);
+  const it = findItemAtByType(state, p.x, p.y, p.z, "shrine");
   if (!it || it.type !== "shrine") { pushLog(state, "Nothing to interact with here."); return false; }
 
   const { cx, cy } = splitWorldToChunk(p.x, p.y);
@@ -2642,6 +2718,9 @@ const SPRITE_SOURCES = {
   goblin: "./client/assets/goblin_dagger_full.png",
   rat: "./client/assets/rat_full.png",
   rogue: "./client/assets/rogue_full.png",
+  jelly_green: "./client/assets/jelly_green_full.png",
+  jelly_yellow: "./client/assets/jelly_yellow_full.png",
+  jelly_red: "./client/assets/jelly_red_full.png",
   key_red: "./client/assets/red_key_full.png",
   key_blue: "./client/assets/blue_key_full.png",
   key_green: "./client/assets/green_key_full.png",
@@ -2654,6 +2733,8 @@ const SPRITE_SOURCES = {
   weapon_bronze_dagger: "./client/assets/bronze_dagger_full.png",
   weapon_bronze_sword: "./client/assets/bronze_sword_full.png",
   weapon_bronze_axe: "./client/assets/bronze_axe_full.png",
+  armor_leather_chest: "./client/assets/leather_chest_full.png",
+  armor_leather_legs: "./client/assets/leather_legs_full.png",
 };
 const spriteImages = {};
 const spriteProcessed = {};
@@ -2741,6 +2822,10 @@ function monsterSpriteId(type) {
   if (type === "goblin") return "goblin";
   if (type === "rat") return "rat";
   if (type === "rogue") return "rogue";
+  if (type === "jelly_green") return "jelly_green";
+  if (type === "jelly_yellow") return "jelly_yellow";
+  if (type === "jelly_red") return "jelly_red";
+  if (type === "jelly") return "jelly_yellow";
   return null;
 }
 function itemSpriteId(ent) {
@@ -2757,6 +2842,8 @@ function itemSpriteId(ent) {
   if (ent.type === "weapon_bronze_dagger") return "weapon_bronze_dagger";
   if (ent.type === "weapon_bronze_sword") return "weapon_bronze_sword";
   if (ent.type === "weapon_bronze_axe") return "weapon_bronze_axe";
+  if (ent.type === "armor_leather_chest") return "armor_leather_chest";
+  if (ent.type === "armor_leather_legs") return "armor_leather_legs";
   return null;
 }
 
@@ -2850,7 +2937,10 @@ function monsterGlyph(type) {
   if (type === "goblin") return { g: "g", c: "#ff6b6b" };
   if (type === "slime") return { g: "s", c: "#ff6b6b" };
   if (type === "rogue") return { g: "R", c: "#ff8a6b" };
-  if (type === "jelly") return { g: "j", c: "#ff6bca" };
+  if (type === "jelly_green") return { g: "j", c: "#79ff79" };
+  if (type === "jelly_yellow") return { g: "j", c: "#ffd966" };
+  if (type === "jelly_red") return { g: "j", c: "#ff6b6b" };
+  if (type === "jelly") return { g: "j", c: "#ffd966" };
   if (type === "giant_spider") return { g: "S", c: "#ff9f4a" };
   if (type === "skeleton") return { g: "K", c: "#ff6b6b" };
   if (type === "archer") return { g: "a", c: "#ffb36b" };
@@ -3102,14 +3192,17 @@ function onKey(state, e) {
 
   if (digitShiftDrop) {
     e.preventDefault();
-    const idx = Number(e.code.replace("Digit", "")) - 1;
-    takeTurn(state, dropInventoryIndex(state, idx));
+    const displayIdx = Number(e.code.replace("Digit", "")) - 1;
+    const entry = getInventoryDisplayEntries(state)[displayIdx];
+    if (entry) takeTurn(state, dropInventoryIndex(state, entry.invIndex));
     return;
   }
 
   if (e.key >= "1" && e.key <= "9") {
     e.preventDefault();
-    useInventoryIndex(state, parseInt(e.key, 10) - 1);
+    const displayIdx = parseInt(e.key, 10) - 1;
+    const entry = getInventoryDisplayEntries(state)[displayIdx];
+    if (entry) useInventoryIndex(state, entry.invIndex);
     return;
   }
 

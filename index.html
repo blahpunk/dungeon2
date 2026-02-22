@@ -452,6 +452,33 @@
         cursor: pointer;
       }
       #invList > .invLabelBtn:focus { outline: none; }
+      .invRow {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .invIconWrap {
+        width: 20px;
+        height: 20px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 20px;
+      }
+      .invIconWrap img {
+        width: 20px;
+        height: 20px;
+        object-fit: contain;
+        display: block;
+      }
+      .invIconGlyph {
+        font-weight: 800;
+        line-height: 1;
+        font-size: 16px;
+      }
+      .invLabelText {
+        min-width: 0;
+      }
       .muted { opacity: 0.75; }
 
       /* Panels below minimap: scroll internally if needed */
