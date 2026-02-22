@@ -1,4 +1,4 @@
-// Infinite Dungeon Roguelike (Explore-Generated, Chunked, Multi-depth)
+﻿// Infinite Dungeon Roguelike (Explore-Generated, Chunked, Multi-depth)
 // v4.5
 // - UI/Controls:
 //   - "E" is now contextual: interacts with shrines OR uses stairs (up/down) when standing on them.
@@ -41,6 +41,7 @@ const ctx = canvas.getContext("2d");
 const metaEl = document.getElementById("meta");
 const logEl = document.getElementById("log");
 const contextActionBtn = document.getElementById("contextActionBtn");
+const depthDisplayEl = document.getElementById("depthDisplay");
 const invListEl = document.getElementById("invList");
 const equipTextEl = document.getElementById("equipText");
 const effectsTextEl = document.getElementById("effectsText");
@@ -57,6 +58,9 @@ const shopListEl = document.getElementById("shopList");
 const shopDetailTitleEl = document.getElementById("shopDetailTitle");
 const shopDetailBodyEl = document.getElementById("shopDetailBody");
 const shopActionBtnEl = document.getElementById("shopActionBtn");
+const mainCanvasWrapEl = document.getElementById("mainCanvasWrap");
+const surfaceCompassEl = document.getElementById("surfaceCompass");
+const surfaceCompassArrowEl = document.getElementById("surfaceCompassArrow");
 
 // Right-side panels: panels are always visible; keep references for layout if needed
 const wrapEl = document.getElementById("wrap");
@@ -1464,11 +1468,11 @@ function renderEffects(state) {
   }
   effectsTextEl.textContent = eff
     .map(e => {
-      if (e.type === "regen") return `Regen (+${e.healPerTurn}/turn) — ${e.turnsLeft} turns`;
-      if (e.type === "bless") return `Blessing (ATK +${e.atkDelta}) — ${e.turnsLeft} turns`;
-      if (e.type === "curse") return `Curse (ATK ${e.atkDelta}) — ${e.turnsLeft} turns`;
-      if (e.type === "reveal") return `Revelation — ${e.turnsLeft} turns`;
-      return `${e.type} — ${e.turnsLeft} turns`;
+      if (e.type === "regen") return `Regen (+${e.healPerTurn}/turn) \u2014 ${e.turnsLeft} turns`;
+      if (e.type === "bless") return `Blessing (ATK +${e.atkDelta}) \u2014 ${e.turnsLeft} turns`;
+      if (e.type === "curse") return `Curse (ATK ${e.atkDelta}) \u2014 ${e.turnsLeft} turns`;
+      if (e.type === "reveal") return `Revelation \u2014 ${e.turnsLeft} turns`;
+      return `${e.type} \u2014 ${e.turnsLeft} turns`;
     })
     .join("\n");
 }
@@ -2352,7 +2356,7 @@ function interactShrine(state) {
   }
 
   applyReveal(state, 22);
-  pushLog(state, "The dungeon’s outline flashes in your mind...");
+  pushLog(state, "The dungeon\u2019s outline flashes in your mind...");
 
   if (it.origin === "base") state.removedIds.add(it.id);
   else if (it.origin === "dynamic") state.dynamic.delete(it.id);
@@ -2632,11 +2636,12 @@ function monstersTurn(state) {
 // ---------- Rendering (glyph overlays) ----------
 // Glyph font: slightly larger than tile size so characters/icons overlap cells a bit
 const GLYPH_FONT = `bold ${Math.floor(TILE * 1.12)}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace`;
-const MONSTER_SPRITE_SIZE = Math.round(TILE * 1.65);
-const ITEM_SPRITE_SIZE = Math.round(TILE * 1.1);
+const MONSTER_SPRITE_SIZE = Math.round(TILE * 1.6);
+const ITEM_SPRITE_SIZE = Math.round(TILE * 1.6);
 const SPRITE_SOURCES = {
   goblin: "./client/assets/goblin_dagger_full.png",
   rat: "./client/assets/rat_full.png",
+  rogue: "./client/assets/rogue_full.png",
   key_red: "./client/assets/red_key_full.png",
   key_blue: "./client/assets/blue_key_full.png",
   key_green: "./client/assets/green_key_full.png",
@@ -2646,6 +2651,9 @@ const SPRITE_SOURCES = {
   chest_green: "./client/assets/green_chest_full.png",
   gold: "./client/assets/coins_full.png",
   potion: "./client/assets/potion_hp_full.png",
+  weapon_bronze_dagger: "./client/assets/bronze_dagger_full.png",
+  weapon_bronze_sword: "./client/assets/bronze_sword_full.png",
+  weapon_bronze_axe: "./client/assets/bronze_axe_full.png",
 };
 const spriteImages = {};
 const spriteProcessed = {};
@@ -2732,6 +2740,7 @@ function getSpriteIfReady(id) {
 function monsterSpriteId(type) {
   if (type === "goblin") return "goblin";
   if (type === "rat") return "rat";
+  if (type === "rogue") return "rogue";
   return null;
 }
 function itemSpriteId(ent) {
@@ -2745,6 +2754,9 @@ function itemSpriteId(ent) {
     if (ent.keyType === "key_blue") return "chest_blue";
     if (ent.keyType === "key_green") return "chest_green";
   }
+  if (ent.type === "weapon_bronze_dagger") return "weapon_bronze_dagger";
+  if (ent.type === "weapon_bronze_sword") return "weapon_bronze_sword";
+  if (ent.type === "weapon_bronze_axe") return "weapon_bronze_axe";
   return null;
 }
 
@@ -2770,8 +2782,8 @@ function drawCenteredSprite(ctx2d, sx, sy, img, w, h) {
   ctx2d.drawImage(img, px, py, dw, dh);
 }
 function tileGlyph(t) {
-  if (t === STAIRS_DOWN) return { g: "▼", c: "#d6f5d6" };
-  if (t === STAIRS_UP) return { g: "▲", c: "#e8d6ff" };
+  if (t === STAIRS_DOWN) return { g: "\u25BC", c: "#d6f5d6" };
+  if (t === STAIRS_UP) return { g: "\u25B2", c: "#e8d6ff" };
   if (t === LOCK_RED) return { g: "R", c: "#ff9a9a" };
   if (t === LOCK_BLUE) return { g: "B", c: "#9ad0ff" };
   if (t === LOCK_GREEN) return { g: "G", c: "#a6ff9a" };
@@ -2787,12 +2799,52 @@ function itemGlyph(type) {
   if (type === "key_blue") return { g: "k", c: "#6bb8ff" };
   if (type === "key_green") return { g: "k", c: "#7dff6b" };
   if (type === "shopkeeper") return { g: "@", c: "#ffd166" };
-  if (type === "chest") return { g: "▣", c: "#ffd700" };
-  if (type === "shrine") return { g: "✦", c: "#b8f2e6" };
-  if (type?.startsWith("weapon_")) return { g: "†", c: "#cfcfcf" };
-  if (type?.startsWith("armor_")) return { g: "⛨", c: "#8b5a2b" };
-  return { g: "•", c: "#f4d35e" };
+  if (type === "chest") return { g: "\u25A3", c: "#ffd700" };
+  if (type === "shrine") return { g: "\u2726", c: "#b8f2e6" };
+  if (type?.startsWith("weapon_")) return { g: "\u2020", c: "#cfcfcf" };
+  if (type?.startsWith("armor_")) return { g: "\u26E8", c: "#8b5a2b" };
+  return { g: "\u2022", c: "#f4d35e" };
 }
+function arrowForVector(dx, dy) {
+  if (dx === 0 && dy === 0) return "\u2191";
+  const dirs = ["\u2192", "\u2198", "\u2193", "\u2199", "\u2190", "\u2196", "\u2191", "\u2197"];
+  const oct = Math.round(Math.atan2(dy, dx) / (Math.PI / 4));
+  return dirs[((oct % 8) + 8) % 8];
+}
+
+function updateSurfaceCompass(state) {
+  if (!surfaceCompassEl || !surfaceCompassArrowEl || !mainCanvasWrapEl) return;
+  const p = state.player;
+  if (p.z !== 0) {
+    surfaceCompassEl.style.display = "none";
+    return;
+  }
+
+  const link = state.surfaceLink ?? resolveSurfaceLink(state);
+  const dx = (link?.x ?? p.x) - p.x;
+  const dy = (link?.y ?? p.y) - p.y;
+  const isLadderOnScreen = Math.abs(dx) <= VIEW_RADIUS && Math.abs(dy) <= VIEW_RADIUS;
+  if (isLadderOnScreen) {
+    surfaceCompassEl.style.display = "none";
+    return;
+  }
+  const angle = (dx === 0 && dy === 0) ? (-Math.PI / 2) : Math.atan2(dy, dx);
+
+  const w = Math.max(1, mainCanvasWrapEl.clientWidth);
+  const h = Math.max(1, mainCanvasWrapEl.clientHeight);
+  const cx = w / 2;
+  const cy = h / 2;
+  const margin = 14;
+  const radius = Math.max(18, Math.min(w, h) / 2 - margin);
+  const px = cx + Math.cos(angle) * radius;
+  const py = cy + Math.sin(angle) * radius;
+
+  surfaceCompassEl.style.display = "flex";
+  surfaceCompassEl.style.left = `${px}px`;
+  surfaceCompassEl.style.top = `${py}px`;
+  surfaceCompassArrowEl.style.transform = `rotate(${angle + Math.PI / 2}rad)`;
+}
+
 function monsterGlyph(type) {
   if (type === "rat") return { g: "r", c: "#ff6b6b" };
   if (type === "goblin") return { g: "g", c: "#ff6b6b" };
@@ -2973,11 +3025,13 @@ function draw(state) {
 
   const { cx, cy, lx, ly } = splitWorldToChunk(player.x, player.y);
   metaEl.innerHTML =
-    `<div class="meta-seed">seed: ${world.seedStr} &nbsp; depth: ${player.z} &nbsp; theme: ${theme.name}</div>` +
+    `<div class="meta-seed">seed: ${world.seedStr} &nbsp; theme: ${theme.name}</div>` +
     `<div class="meta-pos">pos: (${player.x}, ${player.y}) chunk: (${cx}, ${cy}) local: (${lx}, ${ly})</div>` +
     `<div class="meta-row"><div class="meta-col"><span class="label">XP</span><span class="val xp">${player.xp}/${xpToNext(player.level)}</span></div><div class="meta-col"><span class="label">Gold</span><span class="val gold">${player.gold}</span></div></div>` +
     `<div class="meta-row"><div class="meta-col"><span class="label">ATK</span><span class="val atk">${Math.max(1, player.atkLo + player.atkBonus)}-${Math.max(1, player.atkHi + player.atkBonus)}</span></div><div class="meta-col"><span class="label">DEF</span><span class="val def">+${player.defBonus}</span></div></div>` +
     `<div class="meta-row"><div class="meta-col"><span class="label">HP</span><span class="val hp">${player.hp}/${player.maxHp}</span></div><div class="meta-col"><span class="label">LVL</span><span class="val lvl">${player.level}</span></div></div>`;
+  if (depthDisplayEl) depthDisplayEl.textContent = `Depth: ${player.z}`;
+  updateSurfaceCompass(state);
 
   // Visual indicator for low HP: toggle hp-low class when HP <= 30% of max
   try {
@@ -3090,7 +3144,7 @@ function onKey(state, e) {
   }
 }
 
-// ---------- Key→Locked Door pairing (doorway-only replacement) ----------
+// ---------- Keyâ†’Locked Door pairing (doorway-only replacement) ----------
 function keyTypeToLockTile(keyType) {
   if (keyType === "key_red") return LOCK_RED;
   if (keyType === "key_blue") return LOCK_BLUE;
@@ -3460,7 +3514,7 @@ function loadSaveOrNew() {
 
 // ---------- Buttons ----------
 document.getElementById("btnNew").addEventListener("click", () => {
-  // "New Seed" (new run w/ new seed) — confirm
+  // "New Seed" (new run w/ new seed) â€” confirm
   if (!confirmNewRun()) return;
   closeShopOverlay();
   game = makeNewGame();
@@ -3473,7 +3527,7 @@ document.getElementById("btnFog").addEventListener("click", () => {
 });
 
 document.getElementById("btnReset").addEventListener("click", () => {
-  // Hard Reset — confirm
+  // Hard Reset â€” confirm
   if (!confirmHardReset()) return;
   localStorage.removeItem(SAVE_KEY);
   closeShopOverlay();

@@ -335,6 +335,14 @@
       #contextActionWrap {
         margin-bottom: 8px;
       }
+      #depthDisplay {
+        margin: 0 0 8px 0;
+        font-size: 18px;
+        font-weight: 800;
+        line-height: 1.1;
+        color: #f2f6ff;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+      }
       #contextActionBtn {
         width: 100%;
         border-radius: 10px;
@@ -344,6 +352,26 @@
       #contextActionBtn:disabled {
         opacity: 0.55;
         cursor: default;
+      }
+      #surfaceCompass {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 24px;
+        height: 24px;
+        z-index: 1450;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+        transform: translate(-50%, -50%);
+      }
+      #surfaceCompassArrow {
+        font-size: 16px;
+        line-height: 1;
+        color: #ff5a5a;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+        transform-origin: 50% 55%;
       }
 
       /* RIGHT COLUMN */
@@ -409,7 +437,7 @@
       }
       .panel h3 { margin: 0 0 8px 0; font-size: 14px; }
 
-      #invList { display: grid; gap: 6px; }
+      #invList { display: grid; gap: 0; }
       /* Inventory items are now direct buttons inside #invList */
       #invList > .invLabelBtn {
         display: block;
@@ -551,6 +579,7 @@
       <div id="leftCol">
         <div id="mainCanvasWrap">
           <canvas id="c"></canvas>
+          <div id="surfaceCompass" aria-hidden="true"><div id="surfaceCompassArrow">▲</div></div>
 
           <div id="invOverlay">
             <div id="invPanel">
@@ -578,6 +607,7 @@
             <div id="contextActionWrap">
               <button id="contextActionBtn" type="button" title="Contextual action">No action</button>
             </div>
+            <div id="depthDisplay">Depth: 0</div>
             <div id="log"></div>
           </div>
 
