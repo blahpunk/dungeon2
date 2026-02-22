@@ -169,6 +169,49 @@
         overflow: auto;
         white-space: pre-wrap;
       }
+      #deathOverlay {
+        position: absolute;
+        inset: 0;
+        z-index: 1600;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        pointer-events: auto;
+        background: rgba(0, 0, 0, 0.55);
+      }
+      #deathOverlay.show {
+        display: flex;
+      }
+      #deathCard {
+        min-width: min(92vw, 440px);
+        max-width: min(92vw, 520px);
+        padding: 18px 16px;
+        border: 1px solid #2a3450;
+        border-radius: 12px;
+        background: rgba(7, 11, 18, 0.98);
+        box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+        text-align: center;
+      }
+      #deathTitle {
+        margin: 0 0 8px 0;
+        font-size: 22px;
+        font-weight: 800;
+        color: #ffffff;
+      }
+      #deathText {
+        margin: 0 0 14px 0;
+        font-size: 13px;
+        color: #c9d4e8;
+      }
+      #deathButtons {
+        display: flex;
+        gap: 10px;
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+      #deathButtons button {
+        min-width: 130px;
+      }
       #contextActionWrap {
         margin-bottom: 8px;
       }
@@ -416,6 +459,17 @@
               <button id="contextActionBtn" type="button" title="Contextual action">No action</button>
             </div>
             <div id="log"></div>
+          </div>
+
+          <div id="deathOverlay" aria-hidden="true">
+            <div id="deathCard">
+              <h2 id="deathTitle">You Died</h2>
+              <p id="deathText">Respawn to continue this run, or start a new dungeon.</p>
+              <div id="deathButtons">
+                <button id="btnRespawn" type="button">Respawn</button>
+                <button id="btnNewDungeon" type="button">New Dungeon</button>
+              </div>
+            </div>
           </div>
         </div>
       </div>

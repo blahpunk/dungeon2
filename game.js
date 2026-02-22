@@ -44,6 +44,9 @@ const contextActionBtn = document.getElementById("contextActionBtn");
 const invListEl = document.getElementById("invList");
 const equipTextEl = document.getElementById("equipText");
 const effectsTextEl = document.getElementById("effectsText");
+const deathOverlayEl = document.getElementById("deathOverlay");
+const btnRespawnEl = document.getElementById("btnRespawn");
+const btnNewDungeonEl = document.getElementById("btnNewDungeon");
 
 // Right-side panels: panels are always visible; keep references for layout if needed
 const wrapEl = document.getElementById("wrap");
@@ -934,6 +937,13 @@ function renderLog(state) {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
+function updateDeathOverlay(state) {
+  if (!deathOverlayEl) return;
+  const show = !!state?.player?.dead;
+  deathOverlayEl.classList.toggle("show", show);
+  deathOverlayEl.setAttribute("aria-hidden", show ? "false" : "true");
+}
+
 function resolveContextAction(state, occupancy = null) {
   const p = state.player;
   if (p.dead) return null;
@@ -1141,6 +1151,51 @@ function placeInitialSurfaceStairs(state) {
   state.surfaceLink = { x: fx, y: fy, z: p.z };
 }
 
+function computeInitialDepth0Spawn(world) {
+  world.ensureChunksAround(0, 0, 0, VIEW_RADIUS + 2);
+  const ch = world.getChunk(0, 0, 0);
+  const target = { x: Math.floor(CHUNK / 2), y: Math.floor(CHUNK / 2) };
+  let best = null, bestD = Infinity;
+  for (let y = 1; y < CHUNK - 1; y++) for (let x = 1; x < CHUNK - 1; x++) {
+    const t = ch.grid[y][x];
+    if (t === WALL) continue;
+    const dx = x - target.x, dy = y - target.y;
+    const d = dx * dx + dy * dy;
+    if (d < bestD) { bestD = d; best = { x, y, z: 0 }; }
+  }
+  return best ?? { x: target.x, y: target.y, z: 0 };
+}
+
+function respawnAtStart(state) {
+  const p = state.player;
+  const sp = state.startSpawn ?? computeInitialDepth0Spawn(state.world);
+  state.startSpawn = sp;
+
+  p.dead = false;
+  p.hp = p.maxHp;
+  p.effects = [];
+  p.x = sp.x; p.y = sp.y; p.z = sp.z;
+
+  if (!state.world.isPassable(p.x, p.y, p.z)) state.world.setTile(p.x, p.y, p.z, FLOOR);
+  ensureSurfaceLinkTile(state);
+  hydrateNearby(state);
+  pushLog(state, "You awaken at the dungeon entrance.");
+  renderInventory(state);
+  renderEquipment(state);
+  renderEffects(state);
+  updateContextActionButton(state);
+  updateDeathOverlay(state);
+  saveNow(state);
+}
+
+function confirmNewDungeonFromDeath() {
+  return confirm(
+    "Start a NEW DUNGEON?\n\n" +
+    "This will reset all current run progress (position, depth, discovered areas, inventory, and progress).\n\n" +
+    "Start new dungeon now?"
+  );
+}
+
 function makeNewGame(seedStr = randomSeedString()) {
   const world = new World(seedStr);
 
@@ -1173,21 +1228,13 @@ function makeNewGame(seedStr = randomSeedString()) {
     visitedDoors: new Set(),
     exploredChunks: new Set(),
     surfaceLink: null,
+    startSpawn: null,
   };
-
-  world.ensureChunksAround(0, 0, 0, VIEW_RADIUS + 2);
-  const ch = world.getChunk(0, 0, 0);
-
-  const target = { x: Math.floor(CHUNK / 2), y: Math.floor(CHUNK / 2) };
-  let best = null, bestD = Infinity;
-  for (let y = 1; y < CHUNK - 1; y++) for (let x = 1; x < CHUNK - 1; x++) {
-    const t = ch.grid[y][x];
-    if (t === WALL) continue;
-    const dx = x - target.x, dy = y - target.y;
-    const d = dx * dx + dy * dy;
-    if (d < bestD) { bestD = d; best = { x, y }; }
-  }
-  if (best) { player.x = best.x; player.y = best.y; }
+  const start = computeInitialDepth0Spawn(world);
+  state.startSpawn = start;
+  player.x = start.x;
+  player.y = start.y;
+  player.z = start.z;
   placeInitialSurfaceStairs(state);
   ensureSurfaceLinkTile(state);
 
@@ -1471,7 +1518,7 @@ function reduceIncomingDamage(state, dmg) {
 function killPlayer(state) {
   state.player.hp = 0;
   state.player.dead = true;
-  pushLog(state, "YOU DIED. Press R to start a new run.");
+  pushLog(state, "YOU DIED.");
 }
 
 // ---------- Doors ----------
@@ -2494,17 +2541,8 @@ function draw(state) {
     }
   } catch (e) { /* ignore DOM errors */ }
 
-  if (player.dead) {
-    ctx.fillStyle = theme.overlay;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 26px system-ui, sans-serif";
-    ctx.fillText("YOU DIED", 20, 44);
-    ctx.font = "14px system-ui, sans-serif";
-    ctx.fillText("Press R to start a new run", 20, 68);
-  }
-
   drawMinimap(state);
+  updateDeathOverlay(state);
 }
 
 // ---------- Turn handling ----------
@@ -2684,6 +2722,7 @@ function exportSave(state) {
     visitedDoors,
     exploredChunks,
     surfaceLink: state.surfaceLink ?? null,
+    startSpawn: state.startSpawn ?? null,
   };
 
   return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
@@ -2789,6 +2828,7 @@ function importSave(saveStr) {
       visitedDoors: new Set(payload.visitedDoors ?? []),
       exploredChunks: new Set(payload.exploredChunks ?? []),
       surfaceLink: payload.surfaceLink ?? null,
+      startSpawn: payload.startSpawn ?? null,
     };
 
     fogEnabled = !!payload.fog;
@@ -2804,6 +2844,7 @@ function importSave(saveStr) {
     state.player.maxHp = state.player.maxHp ?? 1800;
     state.player.hp = clamp(state.player.hp ?? 1800, 0, state.player.maxHp);
     state.surfaceLink = resolveSurfaceLink(state);
+    state.startSpawn = state.startSpawn ?? computeInitialDepth0Spawn(world);
     ensureSurfaceLinkTile(state);
 
     recalcDerivedStats(state);
@@ -2873,6 +2914,8 @@ document.getElementById("btnImport").addEventListener("click", () => {
   const loaded = importSave(str);
   if (!loaded) return alert("Invalid save.");
   game = loaded;
+  updateContextActionButton(game);
+  updateDeathOverlay(game);
   saveNow(game);
 });
 contextActionBtn?.addEventListener("click", () => {
@@ -2880,6 +2923,15 @@ contextActionBtn?.addEventListener("click", () => {
   const action = resolveContextAction(game);
   if (!action) return;
   takeTurn(game, action.run());
+});
+btnRespawnEl?.addEventListener("click", () => {
+  if (!game || !game.player?.dead) return;
+  respawnAtStart(game);
+});
+btnNewDungeonEl?.addEventListener("click", () => {
+  if (!confirmNewDungeonFromDeath()) return;
+  game = makeNewGame();
+  saveNow(game);
 });
 
 // ---------- Main ----------
@@ -2903,6 +2955,7 @@ window.addEventListener("unhandledrejection", (e) => showFatal(e.reason ?? e));
 try {
   game = loadSaveOrNew();
   updateContextActionButton(game);
+  updateDeathOverlay(game);
   renderInventory(game);
   renderEquipment(game);
   renderEffects(game);
