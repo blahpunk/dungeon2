@@ -39,6 +39,7 @@ const EDGE_SOFT_PX = Math.max(2, Math.floor(TILE * 0.08));
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
 const metaEl = document.getElementById("meta");
+const headerInfoEl = document.getElementById("headerInfo");
 const logEl = document.getElementById("log");
 const contextActionBtn = document.getElementById("contextActionBtn");
 const contextPotionBtn = document.getElementById("contextPotionBtn");
@@ -85,6 +86,9 @@ let fogEnabled = true;
 let minimapEnabled = true;
 const shopUi = { open: false, mode: "buy", selectedBuy: 0, selectedSell: 0 };
 let contextAuxSignature = "";
+const MOBILE_VISIBILITY_BOOST =
+  (typeof window !== "undefined" && window.matchMedia && window.matchMedia("(pointer: coarse)").matches) ||
+  (typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || ""));
 
 // ---------- RNG (deterministic base gen) ----------
 function xmur3(str) {
@@ -120,6 +124,34 @@ function makeRng(seedStr) {
 function randInt(rng, lo, hiInclusive) {
   const span = hiInclusive - lo + 1;
   return lo + Math.floor(rng() * span);
+}
+
+function brightenHexColor(hex, amount = 0.2) {
+  if (typeof hex !== "string" || hex.charAt(0) !== "#") return hex;
+  let s = hex.slice(1);
+  if (s.length === 3) s = s.split("").map((c) => c + c).join("");
+  if (s.length !== 6) return hex;
+  const n = parseInt(s, 16);
+  if (!Number.isFinite(n)) return hex;
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  const lift = (v) => Math.max(0, Math.min(255, Math.round(v + (255 - v) * amount)));
+  const rr = lift(r).toString(16).padStart(2, "0");
+  const gg = lift(g).toString(16).padStart(2, "0");
+  const bb = lift(b).toString(16).padStart(2, "0");
+  return `#${rr}${gg}${bb}`;
+}
+
+function applyVisibilityBoostToTheme(theme) {
+  if (!MOBILE_VISIBILITY_BOOST || !theme) return theme;
+  const boosted = { ...theme };
+  for (const [k, v] of Object.entries(theme)) {
+    if (typeof v !== "string" || v.charAt(0) !== "#") continue;
+    const amt = k.endsWith("NV") ? 0.26 : 0.2;
+    boosted[k] = brightenHexColor(v, amt);
+  }
+  return boosted;
 }
 function choice(rng, arr) { return arr[Math.floor(rng() * arr.length)]; }
 function clamp(n, lo, hi) { return Math.max(lo, Math.min(hi, n)); }
@@ -2112,7 +2144,7 @@ function drawMinimap(state) {
   }
 
   const p = state.player;
-  const theme = themeForDepth(p.z);
+  const theme = applyVisibilityBoostToTheme(themeForDepth(p.z));
   mctx.fillStyle = "#05070c";
   mctx.fillRect(0, 0, mini.width, mini.height);
 
@@ -2975,69 +3007,8 @@ const spriteImages = {};
 const spriteProcessed = {};
 const spriteReady = {};
 function buildSpriteTransparency(id, img) {
-  // Surface entrance art already has intended transparency and can be harmed
-  // by corner-matte stripping; use it as-is.
-  if (id === "surface_entrance") return img;
-  const w = img.naturalWidth || img.width;
-  const h = img.naturalHeight || img.height;
-  if (!w || !h) return null;
-
-  const off = document.createElement("canvas");
-  off.width = w;
-  off.height = h;
-  const octx = off.getContext("2d", { willReadFrequently: true });
-  if (!octx) return null;
-  octx.drawImage(img, 0, 0);
-
-  const imageData = octx.getImageData(0, 0, w, h);
-  const d = imageData.data;
-  const sample = (x, y) => {
-    const i = (y * w + x) * 4;
-    return [d[i], d[i + 1], d[i + 2]];
-  };
-  const samples = [
-    sample(0, 0),
-    sample(w - 1, 0),
-    sample(0, h - 1),
-    sample(w - 1, h - 1),
-    sample((w / 2) | 0, 0),
-  ];
-  const matte = samples.reduce((acc, c) => [acc[0] + c[0], acc[1] + c[1], acc[2] + c[2]], [0, 0, 0]).map(v => v / samples.length);
-  const threshold = 30;
-
-  for (let i = 0; i < d.length; i += 4) {
-    const dr = d[i] - matte[0];
-    const dg = d[i + 1] - matte[1];
-    const db = d[i + 2] - matte[2];
-    const dist = Math.sqrt(dr * dr + dg * dg + db * db);
-    if (dist <= threshold) d[i + 3] = 0;
-  }
-
-  // Trim transparent padding so rendered sprite uses the visible silhouette area.
-  let minX = w, minY = h, maxX = -1, maxY = -1;
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const i = (y * w + x) * 4;
-      if (d[i + 3] <= 0) continue;
-      if (x < minX) minX = x;
-      if (y < minY) minY = y;
-      if (x > maxX) maxX = x;
-      if (y > maxY) maxY = y;
-    }
-  }
-
-  octx.putImageData(imageData, 0, 0);
-  if (maxX < minX || maxY < minY) return off;
-
-  const tw = maxX - minX + 1;
-  const th = maxY - minY + 1;
-  const trimmed = document.createElement("canvas");
-  trimmed.width = tw;
-  trimmed.height = th;
-  const tctx = trimmed.getContext("2d");
-  if (!tctx) return off;
-  tctx.drawImage(off, minX, minY, tw, th, 0, 0, tw, th);
-  return trimmed;
+  // Use source sprites directly to avoid aggressive matte-stripping artifacts.
+  return img;
 }
 function loadProcessedSprite(id, src) {
   const img = new Image();
@@ -3216,7 +3187,7 @@ function draw(state) {
   const { world, player, seen, visible } = state;
   const { monsters, items } = buildOccupancy(state);
   updateContextActionButton(state, { monsters, items });
-  const theme = themeForDepth(player.z);
+  const theme = applyVisibilityBoostToTheme(themeForDepth(player.z));
   const deferredTileSprites = [];
   const deferredItemSprites = [];
   const deferredMonsterSprites = [];
@@ -3263,7 +3234,7 @@ function draw(state) {
       const ne = world.getTile(wx + 1, wy - 1, player.z);
       const sw = world.getTile(wx - 1, wy + 1, player.z);
       const se = world.getTile(wx + 1, wy + 1, player.z);
-      const edgeAlpha = isVisible ? 0.22 : 0.12;
+      const edgeAlpha = (isVisible ? 0.22 : 0.12) * (MOBILE_VISIBILITY_BOOST ? 0.45 : 1);
       const px = sx * TILE, py = sy * TILE;
       const chamfer = CORNER_CHAMFER_PX;
 
@@ -3274,7 +3245,8 @@ function draw(state) {
         if (wallish(w)) ctx.fillRect(px, py, EDGE_SHADE_PX, TILE);
         if (wallish(e)) ctx.fillRect(px + TILE - EDGE_SHADE_PX, py, EDGE_SHADE_PX, TILE);
         // Secondary softer shade layer for smoother transitions at high resolution.
-        ctx.fillStyle = `rgba(0,0,0,${isVisible ? 0.12 : 0.06})`;
+        const softShade = (isVisible ? 0.12 : 0.06) * (MOBILE_VISIBILITY_BOOST ? 0.45 : 1);
+        ctx.fillStyle = `rgba(0,0,0,${softShade})`;
         if (wallish(n)) ctx.fillRect(px, py + EDGE_SHADE_PX, TILE, EDGE_SOFT_PX);
         if (wallish(s)) ctx.fillRect(px, py + TILE - EDGE_SHADE_PX - EDGE_SOFT_PX, TILE, EDGE_SOFT_PX);
         if (wallish(w)) ctx.fillRect(px + EDGE_SHADE_PX, py, EDGE_SOFT_PX, TILE);
@@ -3399,9 +3371,12 @@ function draw(state) {
   ctx.fill();
 
   const { cx, cy, lx, ly } = splitWorldToChunk(player.x, player.y);
+  if (headerInfoEl) {
+    headerInfoEl.innerHTML =
+      `<div>seed: ${world.seedStr} | theme: ${theme.name}</div>` +
+      `<div>pos: (${player.x}, ${player.y}) chunk: (${cx}, ${cy}) local: (${lx}, ${ly})</div>`;
+  }
   metaEl.innerHTML =
-    `<div class="meta-seed">seed: ${world.seedStr} &nbsp; theme: ${theme.name}</div>` +
-    `<div class="meta-pos">pos: (${player.x}, ${player.y}) chunk: (${cx}, ${cy}) local: (${lx}, ${ly})</div>` +
     `<div class="meta-row"><div class="meta-col"><span class="label">XP</span><span class="val xp">${player.xp}/${xpToNext(player.level)}</span></div><div class="meta-col"><span class="label">Gold</span><span class="val gold">${player.gold}</span></div></div>` +
     `<div class="meta-row"><div class="meta-col"><span class="label">ATK</span><span class="val atk">${Math.max(1, player.atkLo + player.atkBonus)}-${Math.max(1, player.atkHi + player.atkBonus)}</span></div><div class="meta-col"><span class="label">DEF</span><span class="val def">+${player.defBonus}</span></div></div>` +
     `<div class="meta-row"><div class="meta-col"><span class="label">HP</span><span class="val hp">${player.hp}/${player.maxHp}</span></div><div class="meta-col"><span class="label">LVL</span><span class="val lvl">${player.level}</span></div></div>`;

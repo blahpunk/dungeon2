@@ -1,4 +1,4 @@
-<!-- index.html -->
+﻿<!-- index.html -->
 <!doctype html>
 <html lang="en">
   <head>
@@ -31,6 +31,14 @@
         flex-wrap: wrap;
       }
       header .title { font-weight: 800; letter-spacing: 0.3px; margin-right: 8px; }
+      #headerInfo {
+        margin-left: auto;
+        text-align: right;
+        font-size: 12px;
+        line-height: 1.25;
+        opacity: 0.9;
+        white-space: nowrap;
+      }
       button {
         background: #182032;
         color: #e6e6e6;
@@ -556,6 +564,26 @@
       /* Mobile touch controls (visible on small screens) */
       #touchControls { display: none; }
       @media (max-width: 760px) {
+        body {
+          background: #131c2b;
+        }
+        header {
+          background: #162133;
+          border-bottom-color: #2c3b57;
+        }
+        #mainCanvasWrap {
+          background: #111a29;
+          border-color: #324465;
+        }
+        canvas#c {
+          filter: brightness(1.24) contrast(1.08) saturate(1.08);
+        }
+        #logPanel {
+          background: rgba(14, 20, 32, 0.35);
+          border-radius: 10px;
+          padding: 4px;
+        }
+
         /* Fixed to bottom-right: actions at left, D-pad at right */
         #touchControls {
           display: flex;
@@ -634,6 +662,7 @@
       <button id="btnReset">Hard reset</button>
       <button id="btnExport">Copy save</button>
       <button id="btnImport">Load save</button>
+      <div id="headerInfo"></div>
     </header>
 
     <div id="wrap">
@@ -641,13 +670,11 @@
       <div id="leftCol">
         <div id="mainCanvasWrap">
           <canvas id="c"></canvas>
-          <div id="surfaceCompass" aria-hidden="true"><div id="surfaceCompassArrow">▲</div></div>
+          <div id="surfaceCompass" aria-hidden="true"><div id="surfaceCompassArrow">&#9650;</div></div>
 
           <div id="invOverlay">
             <div id="invPanel">
               <div class="panel" style="background:transparent;border:none;padding:0;">
-                <h3 style="margin:0 0 6px 0;font-size:13px;">Inventory <span class="muted">(I)</span></h3>
-                <div class="muted" style="font-size:12px;margin-bottom:8px;">Use/equip with 1–9 or tap. Drop with Shift+1–9 or right-click/long-press.</div>
                 <div id="invList"></div>
               </div>
             </div>
@@ -709,11 +736,11 @@
 
         <div id="rightScroll">
           <div id="help">
-            Move: <code>Arrow</code>/<code>WASD</code> · Wait: <code>.</code>/<code>Space</code><br />
-            Pickup: <code>G</code> · Use/Equip: <code>1–9</code> · Drop: <code>Shift+1–9</code> · Inventory: <code>I</code><br />
+            Move: <code>Arrow</code>/<code>WASD</code> &middot; Wait: <code>.</code>/<code>Space</code><br />
+            Pickup: <code>G</code> &middot; Use/Equip: <code>1&ndash;9</code> &middot; Drop: <code>Shift+1&ndash;9</code> &middot; Inventory: <code>I</code><br />
             Doors: bump to open, <code>C</code> close adjacent open door<br />
             
-            Interact shrine/take stairs: <code>E</code> · Toggle minimap: <code>M</code> · New run: <code>R</code>
+            Interact shrine/take stairs: <code>E</code> &middot; Toggle minimap: <code>M</code> &middot; New run: <code>R</code>
           </div>
         </div>
       </div>
@@ -754,17 +781,17 @@
               <table class="control-grid" role="presentation">
                 <tr>
                   <td></td>
-                  <td><button class="dpad-btn" data-dx="0" data-dy="-1" title="Move Up">↑</button></td>
+                  <td><button class="dpad-btn" data-dx="0" data-dy="-1" title="Move Up">&#8593;</button></td>
                   <td></td>
                 </tr>
                 <tr>
-                  <td><button class="dpad-btn" data-dx="-1" data-dy="0" title="Move Left">←</button></td>
-                  <td><button class="dpad-btn center" data-dx="0" data-dy="0" title="Context Action">◉</button></td>
-                  <td><button class="dpad-btn" data-dx="1" data-dy="0" title="Move Right">→</button></td>
+                  <td><button class="dpad-btn" data-dx="-1" data-dy="0" title="Move Left">&#8592;</button></td>
+                  <td><button class="dpad-btn center" data-dx="0" data-dy="0" title="Context Action">&#9673;</button></td>
+                  <td><button class="dpad-btn" data-dx="1" data-dy="0" title="Move Right">&#8594;</button></td>
                 </tr>
                 <tr>
                   <td></td>
-                  <td><button class="dpad-btn" data-dx="0" data-dy="1" title="Move Down">↓</button></td>
+                  <td><button class="dpad-btn" data-dx="0" data-dy="1" title="Move Down">&#8595;</button></td>
                   <td></td>
                 </tr>
               </table>
