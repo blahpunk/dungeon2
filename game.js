@@ -2925,6 +2925,7 @@ const SPRITE_SOURCES = {
   chest_green: "./client/assets/green_chest_full.png",
   gold: "./client/assets/coins_full.png",
   potion: "./client/assets/potion_hp_full.png",
+  surface_entrance: "./client/assets/surface_entrance_full.png",
   weapon_bronze_dagger: "./client/assets/bronze_dagger_full.png",
   weapon_bronze_sword: "./client/assets/bronze_sword_full.png",
   weapon_bronze_axe: "./client/assets/bronze_axe_full.png",
@@ -2938,7 +2939,10 @@ const SPRITE_SOURCES = {
 const spriteImages = {};
 const spriteProcessed = {};
 const spriteReady = {};
-function buildSpriteTransparency(img) {
+function buildSpriteTransparency(id, img) {
+  // Surface entrance art already has intended transparency and can be harmed
+  // by corner-matte stripping; use it as-is.
+  if (id === "surface_entrance") return img;
   const w = img.naturalWidth || img.width;
   const h = img.naturalHeight || img.height;
   if (!w || !h) return null;
@@ -3006,7 +3010,7 @@ function loadProcessedSprite(id, src) {
   spriteProcessed[id] = null;
   spriteReady[id] = false;
   img.onload = () => {
-    spriteProcessed[id] = buildSpriteTransparency(img);
+    spriteProcessed[id] = buildSpriteTransparency(id, img);
     spriteReady[id] = true;
   };
   img.onerror = () => { spriteReady[id] = false; };
@@ -3079,6 +3083,14 @@ function tileGlyph(t) {
   if (t === LOCK_GREEN) return { g: "G", c: "#a6ff9a" };
   if (t === DOOR_CLOSED) return { g: "+", c: "#e6d3b3" };
   if (t === DOOR_OPEN) return { g: "/", c: "#b8d6ff" };
+  return null;
+}
+function tileSpriteId(state, wx, wy, wz, t) {
+  if (t === STAIRS_DOWN && wz === SURFACE_LEVEL && wx === 0 && wy === 0) return "surface_entrance";
+  if (t === STAIRS_UP && wz === 0) {
+    const link = state.surfaceLink ?? resolveSurfaceLink(state);
+    if (link && wx === link.x && wy === link.y) return "surface_entrance";
+  }
   return null;
 }
 function itemGlyph(type) {
@@ -3264,10 +3276,15 @@ function draw(state) {
         }
       }
 
-      const tg = tileGlyph(t);
-      if (tg) {
-        const col = (isVisible || !fogEnabled) ? tg.c : "rgba(230,230,230,0.45)";
-        drawGlyph(ctx, sx, sy, tg.g, col);
+      const tileSprite = getSpriteIfReady(tileSpriteId(state, wx, wy, player.z, t));
+      if (tileSprite) {
+        drawCenteredSprite(ctx, sx, sy, tileSprite, ITEM_SPRITE_SIZE, ITEM_SPRITE_SIZE);
+      } else {
+        const tg = tileGlyph(t);
+        if (tg) {
+          const col = (isVisible || !fogEnabled) ? tg.c : "rgba(230,230,230,0.45)";
+          drawGlyph(ctx, sx, sy, tg.g, col);
+        }
       }
 
       if (isVisible || !fogEnabled) {
@@ -3307,7 +3324,7 @@ function draw(state) {
     drawCenteredSprite(ctx, spr.sx, spr.sy, spr.img, MONSTER_SPRITE_SIZE, MONSTER_SPRITE_SIZE);
   }
 
-  ctx.fillStyle = "#7ce3ff";
+  ctx.fillStyle = "#ffffff";
   // Player marker as a circle centered in the tile.
   const pcx = VIEW_RADIUS * TILE + TILE / 2;
   const pcy = VIEW_RADIUS * TILE + TILE / 2;
