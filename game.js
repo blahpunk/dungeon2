@@ -2284,6 +2284,57 @@ function drawMinimap(state) {
     }
   }
 
+  // Draw stair arrows on top of minimap tiles so ladders are always identifiable.
+  mctx.textAlign = "center";
+  mctx.textBaseline = "middle";
+  mctx.font = `bold ${Math.max(8, MINI_SCALE * 3)}px ui-monospace, monospace`;
+  for (let my = 0; my < size; my++) {
+    for (let mx = 0; mx < size; mx++) {
+      const wx = p.x + (mx - MINI_RADIUS);
+      const wy = p.y + (my - MINI_RADIUS);
+      if (!state.seen.has(keyXYZ(wx, wy, p.z))) continue;
+      const t = state.world.getTile(wx, wy, p.z);
+      if (t !== STAIRS_UP && t !== STAIRS_DOWN) continue;
+
+      const cx = mx * MINI_SCALE + MINI_SCALE / 2;
+      const cy = my * MINI_SCALE + MINI_SCALE / 2;
+      mctx.fillStyle = t === STAIRS_UP ? "#f0d8ff" : "#d8ffd8";
+      mctx.fillText(t === STAIRS_UP ? "\u25B2" : "\u25BC", cx, cy);
+    }
+  }
+
+  const surfaceTarget = p.z === 0
+    ? (state.surfaceLink ?? resolveSurfaceLink(state))
+    : (p.z === SURFACE_LEVEL ? { x: 0, y: 0, z: SURFACE_LEVEL } : null);
+  if (surfaceTarget && surfaceTarget.z === p.z) {
+    const mx = surfaceTarget.x - p.x + MINI_RADIUS;
+    const my = surfaceTarget.y - p.y + MINI_RADIUS;
+    if (mx >= 0 && mx < size && my >= 0 && my < size && state.seen.has(keyXYZ(surfaceTarget.x, surfaceTarget.y, p.z))) {
+      const cx = mx * MINI_SCALE + MINI_SCALE / 2;
+      const cy = my * MINI_SCALE + MINI_SCALE / 2;
+      const rOuter = Math.max(4, MINI_SCALE * 1.8);
+      const rInner = Math.max(1.6, rOuter * 0.48);
+      const points = 5;
+      const step = Math.PI / points;
+
+      mctx.beginPath();
+      for (let i = 0; i < points * 2; i++) {
+        const r = (i % 2 === 0) ? rOuter : rInner;
+        const a = -Math.PI / 2 + i * step;
+        const x = cx + Math.cos(a) * r;
+        const y = cy + Math.sin(a) * r;
+        if (i === 0) mctx.moveTo(x, y);
+        else mctx.lineTo(x, y);
+      }
+      mctx.closePath();
+      mctx.fillStyle = "#ffd166";
+      mctx.fill();
+      mctx.lineWidth = 1;
+      mctx.strokeStyle = "rgba(80,55,0,0.85)";
+      mctx.stroke();
+    }
+  }
+
   mctx.fillStyle = "#7ce3ff";
   mctx.fillRect(MINI_RADIUS * MINI_SCALE, MINI_RADIUS * MINI_SCALE, MINI_SCALE, MINI_SCALE);
 }
@@ -3062,9 +3113,13 @@ const MONSTER_SPRITE_SIZE = Math.round(TILE * 1.6);
 const ITEM_SPRITE_SIZE = Math.round(TILE * 1.6);
 const SURFACE_ENTRANCE_SPRITE_SIZE = Math.round(TILE * 2.25);
 const SHOP_SPRITE_SIZE = Math.round(TILE * 3.25);
+const PLAYER_SPRITE_SIZE = Math.round(TILE * 2.1);
+const HERO_GLOW_RADIUS = Math.round(TILE * 0.95);
+const MONSTER_GLOW_RADIUS = Math.round(TILE * 0.78);
 const SHOP_FOOTPRINT_W = 3;
 const SHOP_FOOTPRINT_H = 2;
 const SPRITE_SOURCES = {
+  hero: "./client/assets/hero_full.png",
   goblin: "./client/assets/goblin_dagger_full.png",
   rat: "./client/assets/rat_full.png",
   rogue: "./client/assets/rogue_full.png",
@@ -3182,6 +3237,16 @@ function drawCenteredSpriteAt(ctx2d, centerX, centerY, img, w, h) {
   const px = Math.round(centerX - dw / 2);
   const py = Math.round(centerY - dh / 2);
   ctx2d.drawImage(img, px, py, dw, dh);
+}
+function drawSoftGlow(ctx2d, cx, cy, radius, rgbaInner = "rgba(255,255,255,0.22)", rgbaOuter = "rgba(255,255,255,0)") {
+  const r = Math.max(2, radius);
+  const g = ctx2d.createRadialGradient(cx, cy, 0, cx, cy, r);
+  g.addColorStop(0, rgbaInner);
+  g.addColorStop(1, rgbaOuter);
+  ctx2d.fillStyle = g;
+  ctx2d.beginPath();
+  ctx2d.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx2d.fill();
 }
 function tileGlyph(t) {
   if (t === STAIRS_DOWN) return { g: "\u25BC", c: "#d6f5d6" };
@@ -3449,17 +3514,26 @@ function draw(state) {
   }
   // Draw oversized monster sprites after terrain so neighboring tiles don't overpaint overflow.
   for (const spr of deferredMonsterSprites) {
+    const cx = spr.sx * TILE + TILE / 2;
+    const cy = spr.sy * TILE + TILE / 2;
+    drawSoftGlow(ctx, cx, cy, MONSTER_GLOW_RADIUS, "rgba(255,120,90,0.20)", "rgba(255,120,90,0)");
     drawCenteredSprite(ctx, spr.sx, spr.sy, spr.img, MONSTER_SPRITE_SIZE, MONSTER_SPRITE_SIZE);
   }
 
-  ctx.fillStyle = "#ffffff";
-  // Player marker as a circle centered in the tile.
-  const pcx = viewRadiusX * TILE + TILE / 2;
-  const pcy = viewRadiusY * TILE + TILE / 2;
-  const prad = Math.max(3, TILE / 2 - 2);
-  ctx.beginPath();
-  ctx.arc(pcx, pcy, prad, 0, Math.PI * 2);
-  ctx.fill();
+  const heroCx = viewRadiusX * TILE + TILE / 2;
+  const heroCy = viewRadiusY * TILE + TILE / 2;
+  drawSoftGlow(ctx, heroCx, heroCy, HERO_GLOW_RADIUS, "rgba(120,220,255,0.24)", "rgba(120,220,255,0)");
+  const heroSprite = getSpriteIfReady("hero");
+  if (heroSprite) {
+    drawCenteredSprite(ctx, viewRadiusX, viewRadiusY, heroSprite, PLAYER_SPRITE_SIZE, PLAYER_SPRITE_SIZE);
+  } else {
+    ctx.fillStyle = "#ffffff";
+    // Fallback player marker while sprite is loading.
+    const prad = Math.max(3, TILE / 2 - 2);
+    ctx.beginPath();
+    ctx.arc(heroCx, heroCy, prad, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
   const { cx, cy, lx, ly } = splitWorldToChunk(player.x, player.y);
   if (headerInfoEl) {
