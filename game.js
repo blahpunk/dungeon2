@@ -40,6 +40,7 @@ const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
 const metaEl = document.getElementById("meta");
 const headerInfoEl = document.getElementById("headerInfo");
+const vitalsDisplayEl = document.getElementById("vitalsDisplay");
 const logEl = document.getElementById("log");
 const contextActionBtn = document.getElementById("contextActionBtn");
 const contextPotionBtn = document.getElementById("contextPotionBtn");
@@ -3387,14 +3388,19 @@ function draw(state) {
   }
   metaEl.innerHTML =
     `<div class="meta-row"><div class="meta-col"><span class="label">XP</span><span class="val xp">${player.xp}/${xpToNext(player.level)}</span></div><div class="meta-col"><span class="label">Gold</span><span class="val gold">${player.gold}</span></div></div>` +
-    `<div class="meta-row"><div class="meta-col"><span class="label">ATK</span><span class="val atk">${Math.max(1, player.atkLo + player.atkBonus)}-${Math.max(1, player.atkHi + player.atkBonus)}</span></div><div class="meta-col"><span class="label">DEF</span><span class="val def">+${player.defBonus}</span></div></div>` +
-    `<div class="meta-row"><div class="meta-col"><span class="label">HP</span><span class="val hp">${player.hp}/${player.maxHp}</span></div><div class="meta-col"><span class="label">LVL</span><span class="val lvl">${player.level}</span></div></div>`;
+    `<div class="meta-row"><div class="meta-col"><span class="label">ATK</span><span class="val atk">${Math.max(1, player.atkLo + player.atkBonus)}-${Math.max(1, player.atkHi + player.atkBonus)}</span></div><div class="meta-col"><span class="label">DEF</span><span class="val def">+${player.defBonus}</span></div></div>`;
+  if (vitalsDisplayEl) {
+    vitalsDisplayEl.innerHTML =
+      `<span class="lbl">HP</span><span class="hp">${player.hp}/${player.maxHp}</span>` +
+      `<span class="sep">|</span>` +
+      `<span class="lbl">LVL</span><span class="lvl">${player.level}</span>`;
+  }
   if (depthDisplayEl) depthDisplayEl.textContent = `Depth: ${player.z}`;
   updateSurfaceCompass(state);
 
   // Visual indicator for low HP: toggle hp-low class when HP <= 30% of max
   try {
-    const hpNode = metaEl.querySelector('.val.hp');
+    const hpNode = (vitalsDisplayEl?.querySelector('.hp')) || metaEl.querySelector('.val.hp');
     if (hpNode) {
       const threshold = Math.ceil((player.maxHp || 1) * 0.3);
       if (player.hp <= threshold) hpNode.classList.add('hp-low');
