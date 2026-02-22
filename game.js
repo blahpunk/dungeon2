@@ -2930,6 +2930,10 @@ const SPRITE_SOURCES = {
   weapon_bronze_axe: "./client/assets/bronze_axe_full.png",
   armor_leather_chest: "./client/assets/leather_chest_full.png",
   armor_leather_legs: "./client/assets/leather_legs_full.png",
+  weapon_iron_dagger: "./client/assets/iron_dagger_full.png",
+  weapon_iron_sword: "./client/assets/iron_sword_full.png",
+  armor_iron_chest: "./client/assets/iron_chestplate_full.png",
+  armor_iron_legs: "./client/assets/iron_platelegs_full.png",
 };
 const spriteImages = {};
 const spriteProcessed = {};
@@ -3037,8 +3041,12 @@ function itemSpriteId(ent) {
   if (ent.type === "weapon_bronze_dagger") return "weapon_bronze_dagger";
   if (ent.type === "weapon_bronze_sword") return "weapon_bronze_sword";
   if (ent.type === "weapon_bronze_axe") return "weapon_bronze_axe";
+  if (ent.type === "weapon_iron_dagger") return "weapon_iron_dagger";
+  if (ent.type === "weapon_iron_sword") return "weapon_iron_sword";
   if (ent.type === "armor_leather_chest") return "armor_leather_chest";
   if (ent.type === "armor_leather_legs") return "armor_leather_legs";
+  if (ent.type === "armor_iron_chest") return "armor_iron_chest";
+  if (ent.type === "armor_iron_legs") return "armor_iron_legs";
   return null;
 }
 
