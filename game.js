@@ -328,14 +328,7 @@ function ensureChunkConnectivity(grid, rng) {
 }
 
 function pickLockColor(rng, z) {
-  const rW = clamp(8 - z, 2, 8);
-  const bW = clamp(2 + Math.floor(z / 2), 2, 8);
-  const gW = clamp(Math.floor(z / 3), 1, 6);
-  const total = rW + bW + gW;
-  let r = rng() * total;
-  r -= rW; if (r <= 0) return LOCK_RED;
-  r -= bW; if (r <= 0) return LOCK_BLUE;
-  return LOCK_GREEN;
+  return LOCK_RED;
 }
 
 function placeInternalDoors(grid, rng, z) {
@@ -347,9 +340,8 @@ function placeInternalDoors(grid, rng, z) {
       const ns = floorish(n) && floorish(s) && w === WALL && e === WALL;
       const we = floorish(w) && floorish(e) && n === WALL && s === WALL;
       if ((ns || we) && rng() < 0.50) {
-        const lockChance = clamp(0.03 + z * 0.012, 0, 0.22);
-        if (rng() < lockChance) grid[y][x] = pickLockColor(rng, z);
-        else grid[y][x] = DOOR_CLOSED;
+        // Keep base generation as regular connector doors; locks are applied via proximity conversion.
+        grid[y][x] = DOOR_CLOSED;
       }
     }
   }
@@ -405,10 +397,9 @@ function tryAddTreasureRoom(seedStr, rng, z, grid, anchors) {
 
     carveCorridor(grid, rng, a.cx, a.cy, outsideX, outsideY);
 
-    const lock = pickLockColor(rng, z);
-    grid[doorY][doorX] = lock;
+    grid[doorY][doorX] = DOOR_CLOSED;
 
-    specials.treasure = { lx: x + Math.floor(w / 2), ly: y + Math.floor(h / 2), lock };
+    specials.treasure = { lx: x + Math.floor(w / 2), ly: y + Math.floor(h / 2) };
     return specials;
   }
   return specials;
@@ -772,9 +763,7 @@ function monsterTableForDepth(z) {
 }
 
 function keyTypeForDepth(z, rng) {
-  if (z <= 4) return "key_red";
-  if (z <= 10) return rng() < 0.6 ? "key_blue" : "key_red";
-  return rng() < 0.55 ? "key_green" : "key_blue";
+  return "key_red";
 }
 
 function samplePassableCellsInChunk(grid, rng, count) {
@@ -1601,9 +1590,7 @@ function dropEquipmentFromChest(state) {
     invAdd(state, "potion", 1);
     pushLog(state, "Found a Potion!");
   } else {
-    const key = z <= 4 ? "key_red"
-      : z <= 10 ? (Math.random() < 0.6 ? "key_blue" : "key_red")
-      : (Math.random() < 0.55 ? "key_green" : "key_blue");
+    const key = "key_red";
     // Only award a key if we can find/place a matching locked door nearby
     if (placeMatchingLockedDoorNearPlayer(state, key)) {
       invAdd(state, key, 1);
@@ -1643,10 +1630,10 @@ function playerAttack(state, monster) {
         pushLog(state, "It dropped a Red Key!");
       }
     } else if (monster.type === "archer" && Math.random() < 0.25) {
-      const key = "key_blue";
+      const key = "key_red";
       if (placeMatchingLockedDoorNearPlayer(state, key)) {
         spawnDynamicItem(state, key, 1, monster.x, monster.y, monster.z);
-        pushLog(state, "It dropped a Blue Key!");
+        pushLog(state, "It dropped a Red Key!");
       }
       placeMatchingLockedDoorNearPlayer(state, key);
     } else if (monster.type === "skeleton" && Math.random() < 0.20) {
@@ -2655,6 +2642,57 @@ function isDoorwayCandidate(state, x, y, z) {
   return ns || we;
 }
 
+function topologyWalkableTile(t) {
+  return t === FLOOR || t === DOOR_OPEN || t === DOOR_CLOSED || t === STAIRS_DOWN || t === STAIRS_UP;
+}
+
+function isDoorChokepoint(state, x, y, z, maxRadius = 28, maxNodes = 2600) {
+  if (!isDoorwayCandidate(state, x, y, z)) return false;
+
+  const n = state.world.getTile(x, y - 1, z);
+  const s = state.world.getTile(x, y + 1, z);
+  const w = state.world.getTile(x - 1, y, z);
+  const e = state.world.getTile(x + 1, y, z);
+
+  let start = null;
+  let goal = null;
+  if (topologyWalkableTile(n) && topologyWalkableTile(s)) {
+    start = { x, y: y - 1 };
+    goal = { x, y: y + 1 };
+  } else if (topologyWalkableTile(w) && topologyWalkableTile(e)) {
+    start = { x: x - 1, y };
+    goal = { x: x + 1, y };
+  } else {
+    return false;
+  }
+
+  const q = [start];
+  const seen = new Set([keyXY(start.x, start.y)]);
+  let nodes = 0;
+
+  while (q.length && nodes++ < maxNodes) {
+    const cur = q.shift();
+    if (cur.x === goal.x && cur.y === goal.y) return false;
+
+    for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+      const nx = cur.x + dx, ny = cur.y + dy;
+      if (nx === x && ny === y) continue; // treat the candidate door as blocked
+      if (Math.abs(nx - x) + Math.abs(ny - y) > maxRadius) continue;
+
+      const t = state.world.getTile(nx, ny, z);
+      if (!topologyWalkableTile(t)) continue;
+
+      const k = keyXY(nx, ny);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      q.push({ x: nx, y: ny });
+    }
+  }
+
+  // If sides could not reconnect without using this door, it's a chokepoint.
+  return true;
+}
+
 function placeMatchingLockedDoorNearPlayer(state, keyType) {
   const p = state.player;
   const z = p.z;
@@ -2681,14 +2719,16 @@ function placeMatchingLockedDoorNearPlayer(state, keyType) {
       if (d < minDist || d > maxDist) continue;
       if (!state.seen.has(keyXYZ(wx, wy, z))) continue;
       if (!isDoorwayCandidate(state, wx, wy, z)) continue;
-      candidates.push({ x: wx, y: wy, d });
+      candidates.push({ x: wx, y: wy, d, choke: isDoorChokepoint(state, wx, wy, z) });
     }
   }
 
   if (!candidates.length) return false;
 
-  candidates.sort((a, b) => a.d - b.d);
-  const pick = candidates[Math.floor(candidates.length * 0.65)] ?? candidates[candidates.length - 1];
+  const chokeCandidates = candidates.filter(c => c.choke);
+  const pool = chokeCandidates.length ? chokeCandidates : candidates;
+  pool.sort((a, b) => a.d - b.d);
+  const pick = pool[Math.floor(pool.length * 0.65)] ?? pool[pool.length - 1];
 
   state.world.setTile(pick.x, pick.y, z, lockTile);
   pushLog(state, `You sense a matching locked door somewhere nearby...`);
