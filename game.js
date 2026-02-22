@@ -6,7 +6,7 @@
 //     Prompts explain exactly what each action does.
 
 const CHUNK = 32;
-const TILE = 32;
+const TILE = 256;
 const VIEW_RADIUS = 14;
 
 const MINI_SCALE = 3;
@@ -33,6 +33,7 @@ const STAIRS_DOWN_SPAWN_CHANCE = 0.32;
 const STAIRS_UP_SPAWN_CHANCE = 0.26;
 const EDGE_SHADE_PX = Math.max(2, Math.floor(TILE * 0.12));
 const CORNER_CHAMFER_PX = Math.max(3, Math.floor(TILE * 0.22));
+const EDGE_SOFT_PX = Math.max(2, Math.floor(TILE * 0.08));
 
 // ---------- DOM ----------
 const canvas = document.getElementById("c");
@@ -51,8 +52,11 @@ const mini = document.getElementById("mini");
 const mctx = mini.getContext("2d");
 
 const viewSize = VIEW_RADIUS * 2 + 1;
-canvas.width = viewSize * TILE;
-canvas.height = viewSize * TILE;
+const LOGICAL_CANVAS_SIZE = viewSize * TILE;
+const MAX_RENDER_CANVAS_DIM = 4096;
+const RENDER_SCALE = Math.min(1, MAX_RENDER_CANVAS_DIM / LOGICAL_CANVAS_SIZE);
+canvas.width = Math.max(1, Math.floor(LOGICAL_CANVAS_SIZE * RENDER_SCALE));
+canvas.height = Math.max(1, Math.floor(LOGICAL_CANVAS_SIZE * RENDER_SCALE));
 
 mini.width = (MINI_RADIUS * 2 + 1) * MINI_SCALE;
 mini.height = (MINI_RADIUS * 2 + 1) * MINI_SCALE;
@@ -2096,6 +2100,88 @@ function monstersTurn(state) {
 // ---------- Rendering (glyph overlays) ----------
 // Glyph font: slightly larger than tile size so characters/icons overlap cells a bit
 const GLYPH_FONT = `bold ${Math.floor(TILE * 1.12)}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace`;
+const MONSTER_SPRITE_SIZE = Math.round(TILE * 1.65);
+const goblinSprite = new Image();
+const ratSprite = new Image();
+let goblinSpriteProcessed = null;
+let ratSpriteProcessed = null;
+let goblinSpriteReady = false;
+let ratSpriteReady = false;
+function buildSpriteTransparency(img) {
+  const w = img.naturalWidth || img.width;
+  const h = img.naturalHeight || img.height;
+  if (!w || !h) return null;
+
+  const off = document.createElement("canvas");
+  off.width = w;
+  off.height = h;
+  const octx = off.getContext("2d", { willReadFrequently: true });
+  if (!octx) return null;
+  octx.drawImage(img, 0, 0);
+
+  const id = octx.getImageData(0, 0, w, h);
+  const d = id.data;
+  const sample = (x, y) => {
+    const i = (y * w + x) * 4;
+    return [d[i], d[i + 1], d[i + 2]];
+  };
+  const samples = [
+    sample(0, 0),
+    sample(w - 1, 0),
+    sample(0, h - 1),
+    sample(w - 1, h - 1),
+    sample((w / 2) | 0, 0),
+  ];
+  const matte = samples.reduce((acc, c) => [acc[0] + c[0], acc[1] + c[1], acc[2] + c[2]], [0, 0, 0]).map(v => v / samples.length);
+  const threshold = 30;
+
+  for (let i = 0; i < d.length; i += 4) {
+    const dr = d[i] - matte[0];
+    const dg = d[i + 1] - matte[1];
+    const db = d[i + 2] - matte[2];
+    const dist = Math.sqrt(dr * dr + dg * dg + db * db);
+    if (dist <= threshold) d[i + 3] = 0;
+  }
+
+  // Trim transparent padding so rendered sprite uses the visible silhouette area.
+  let minX = w, minY = h, maxX = -1, maxY = -1;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      if (d[i + 3] <= 0) continue;
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+  }
+
+  octx.putImageData(id, 0, 0);
+  if (maxX < minX || maxY < minY) return off;
+
+  const tw = maxX - minX + 1;
+  const th = maxY - minY + 1;
+  const trimmed = document.createElement("canvas");
+  trimmed.width = tw;
+  trimmed.height = th;
+  const tctx = trimmed.getContext("2d");
+  if (!tctx) return off;
+  tctx.drawImage(off, minX, minY, tw, th, 0, 0, tw, th);
+  return trimmed;
+}
+goblinSprite.onload = () => {
+  goblinSpriteProcessed = buildSpriteTransparency(goblinSprite);
+  goblinSpriteReady = true;
+};
+goblinSprite.onerror = () => { goblinSpriteReady = false; };
+goblinSprite.src = "./client/assets/goblin_dagger_full.png";
+ratSprite.onload = () => {
+  ratSpriteProcessed = buildSpriteTransparency(ratSprite);
+  ratSpriteReady = true;
+};
+ratSprite.onerror = () => { ratSpriteReady = false; };
+ratSprite.src = "./client/assets/rat_full.png";
+
 function drawGlyph(ctx2d, sx, sy, glyph, color = "#e6e6e6") {
   const cx = sx * TILE + TILE / 2;
   const cy = sy * TILE + TILE / 2 + 0.5;
@@ -2106,6 +2192,11 @@ function drawGlyph(ctx2d, sx, sy, glyph, color = "#e6e6e6") {
   ctx2d.fillStyle = color;
   ctx2d.fillText(glyph, cx, cy);
   ctx2d.restore();
+}
+function drawCenteredSprite(ctx2d, sx, sy, img, w, h) {
+  const px = sx * TILE + Math.floor((TILE - w) / 2);
+  const py = sy * TILE + Math.floor((TILE - h) / 2);
+  ctx2d.drawImage(img, px, py, w, h);
 }
 function tileGlyph(t) {
   if (t === STAIRS_DOWN) return { g: "▼", c: "#d6f5d6" };
@@ -2146,8 +2237,13 @@ function draw(state) {
   const { world, player, seen, visible } = state;
   const { monsters, items } = buildOccupancy(state);
   const theme = themeForDepth(player.z);
+  const deferredMonsterSprites = [];
 
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.setTransform(RENDER_SCALE, 0, 0, RENDER_SCALE, 0, 0);
 
   for (let sy = 0; sy < viewSize; sy++) {
     for (let sx = 0; sx < viewSize; sx++) {
@@ -2195,6 +2291,12 @@ function draw(state) {
         if (wallish(s)) ctx.fillRect(px, py + TILE - EDGE_SHADE_PX, TILE, EDGE_SHADE_PX);
         if (wallish(w)) ctx.fillRect(px, py, EDGE_SHADE_PX, TILE);
         if (wallish(e)) ctx.fillRect(px + TILE - EDGE_SHADE_PX, py, EDGE_SHADE_PX, TILE);
+        // Secondary softer shade layer for smoother transitions at high resolution.
+        ctx.fillStyle = `rgba(0,0,0,${isVisible ? 0.12 : 0.06})`;
+        if (wallish(n)) ctx.fillRect(px, py + EDGE_SHADE_PX, TILE, EDGE_SOFT_PX);
+        if (wallish(s)) ctx.fillRect(px, py + TILE - EDGE_SHADE_PX - EDGE_SOFT_PX, TILE, EDGE_SOFT_PX);
+        if (wallish(w)) ctx.fillRect(px + EDGE_SHADE_PX, py, EDGE_SOFT_PX, TILE);
+        if (wallish(e)) ctx.fillRect(px + TILE - EDGE_SHADE_PX - EDGE_SOFT_PX, py, EDGE_SOFT_PX, TILE);
       } else if (wallish(t)) {
         ctx.fillStyle = `rgba(255,255,255,${isVisible ? 0.08 : 0.04})`;
         if (openish(n)) ctx.fillRect(px, py, TILE, EDGE_SHADE_PX);
@@ -2257,16 +2359,38 @@ function draw(state) {
 
         if (mk) {
           const ent = state.entities.get(mk);
-          const gm = monsterGlyph(ent?.type);
-          if (gm) drawGlyph(ctx, sx, sy, gm.g, gm.c);
+          if (ent?.type === "goblin" && goblinSpriteReady) {
+            deferredMonsterSprites.push({
+              sx, sy,
+              img: goblinSpriteProcessed ?? goblinSprite,
+            });
+          } else if (ent?.type === "rat" && ratSpriteReady) {
+            deferredMonsterSprites.push({
+              sx, sy,
+              img: ratSpriteProcessed ?? ratSprite,
+            });
+          } else {
+            const gm = monsterGlyph(ent?.type);
+            if (gm) drawGlyph(ctx, sx, sy, gm.g, gm.c);
+          }
         }
       }
     }
   }
 
+  // Draw oversized monster sprites after terrain so neighboring tiles don't overpaint overflow.
+  for (const spr of deferredMonsterSprites) {
+    drawCenteredSprite(ctx, spr.sx, spr.sy, spr.img, MONSTER_SPRITE_SIZE, MONSTER_SPRITE_SIZE);
+  }
+
   ctx.fillStyle = "#7ce3ff";
-  // slightly larger player marker
-  ctx.fillRect(VIEW_RADIUS * TILE + 2, VIEW_RADIUS * TILE + 2, TILE - 4, TILE - 4);
+  // Player marker as a circle centered in the tile.
+  const pcx = VIEW_RADIUS * TILE + TILE / 2;
+  const pcy = VIEW_RADIUS * TILE + TILE / 2;
+  const prad = Math.max(3, TILE / 2 - 2);
+  ctx.beginPath();
+  ctx.arc(pcx, pcy, prad, 0, Math.PI * 2);
+  ctx.fill();
 
   const { cx, cy, lx, ly } = splitWorldToChunk(player.x, player.y);
   metaEl.innerHTML =
@@ -2624,6 +2748,9 @@ function loadSaveOrNew() {
       if (loaded) return loaded;
     }
   } catch {}
+
+  // Avoid leaking transformed state to any future direct canvas operations.
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   const g = makeNewGame();
   saveNow(g);
   return g;
