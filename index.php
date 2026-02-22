@@ -891,6 +891,13 @@
               <button id="debugDepthGo" type="button">Go</button>
             </div>
           </div>
+          <div class="debugTeleport">
+            <label class="debugTeleportLabel" for="debugLevelInput">Set level</label>
+            <div class="debugTeleportRow">
+              <input id="debugLevelInput" type="number" min="1" step="1" inputmode="numeric" placeholder="Level" />
+              <button id="debugLevelGo" type="button">Go</button>
+            </div>
+          </div>
         </div>
       </div>
       <div id="headerInfo"></div>

@@ -41,6 +41,7 @@ const KEY_MAGENTA = "key_magenta";
 const SAVE_KEY = "infinite_dungeon_roguelike_save_v4";
 const XP_SCALE = 100;
 const COMBAT_SCALE = 100;
+const POTION_HEAL_PCT = 0.35;
 const XP_DAMAGE_PER_LEGACY_DAMAGE = 6;
 const XP_KILL_BONUS_PER_MONSTER_XP = 12;
 const STAIRS_DOWN_SPAWN_CHANCE = 0.48;
@@ -95,6 +96,8 @@ const toggleGodmodeEl = document.getElementById("toggleGodmode");
 const toggleFreeShoppingEl = document.getElementById("toggleFreeShopping");
 const debugDepthInputEl = document.getElementById("debugDepthInput");
 const debugDepthGoEl = document.getElementById("debugDepthGo");
+const debugLevelInputEl = document.getElementById("debugLevelInput");
+const debugLevelGoEl = document.getElementById("debugLevelGo");
 const mainCanvasWrapEl = document.getElementById("mainCanvasWrap");
 const surfaceCompassEl = document.getElementById("surfaceCompass");
 const surfaceCompassArrowEl = document.getElementById("surfaceCompassArrow");
@@ -185,6 +188,7 @@ function updateDebugMenuUi(state) {
   if (toggleGodmodeEl) toggleGodmodeEl.checked = d.godmode;
   if (toggleFreeShoppingEl) toggleFreeShoppingEl.checked = d.freeShopping;
   if (debugDepthInputEl) debugDepthInputEl.value = `${state?.player?.z ?? 0}`;
+  if (debugLevelInputEl) debugLevelInputEl.value = `${Math.max(1, Math.floor(state?.player?.level ?? 1))}`;
 }
 function setDebugFlag(state, key, enabled) {
   const d = stateDebug(state);
@@ -195,6 +199,39 @@ function setDebugFlag(state, key, enabled) {
   if (key === "freeShopping") pushLog(state, `Free shopping ${next ? "enabled" : "disabled"}.`);
   saveNow(state);
 }
+
+function setPlayerLevelDebug(state, targetLevel) {
+  const p = state.player;
+  if (!p || !Number.isFinite(targetLevel)) return false;
+  const prevLevel = Math.max(1, Math.floor(p.level ?? 1));
+  const prevMaxHp = Math.max(1, Math.floor(p.maxHp ?? maxHpForLevel(prevLevel)));
+  const newLevel = clamp(Math.trunc(targetLevel), 1, 9999);
+  p.level = newLevel;
+  // Reset progress within the level so XP/UI always matches the chosen level.
+  p.xp = 0;
+  const newMaxHp = maxHpForLevel(newLevel);
+  p.maxHp = newMaxHp;
+  if (newMaxHp >= prevMaxHp) {
+    const hpGain = newMaxHp - prevMaxHp;
+    p.hp = clamp(Math.floor((p.hp ?? newMaxHp) + hpGain), 0, newMaxHp);
+  } else {
+    const ratio = clamp((p.hp ?? newMaxHp) / prevMaxHp, 0, 1);
+    p.hp = clamp(Math.round(newMaxHp * ratio), 0, newMaxHp);
+  }
+  recalcDerivedStats(state);
+  renderInventory(state);
+  renderEquipment(state);
+  renderEffects(state);
+  updateContextActionButton(state);
+  updateDebugMenuUi(state);
+  pushLog(
+    state,
+    `Debug: level set ${prevLevel} -> ${newLevel} (XP ${p.xp}/${xpToNext(newLevel)}, HP ${p.hp}/${p.maxHp}).`
+  );
+  saveNow(state);
+  return true;
+}
+
 function cellHasPassableNeighbor(world, x, y, z) {
   const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
   for (const [dx, dy] of dirs) {
@@ -1960,11 +1997,15 @@ function resolveContextAction(state, occupancy = null) {
   const p = state.player;
   if (p.dead) return null;
 
-  const here = state.world.getTile(p.x, p.y, p.z);
-  if (here === STAIRS_DOWN) return { type: "stairs-down", label: stairContextLabel(state, "down"), run: () => tryUseStairs(state, "down") };
-  if (here === STAIRS_UP) return { type: "stairs-up", label: stairContextLabel(state, "up"), run: () => tryUseStairs(state, "up") };
-
   const occ = occupancy ?? buildOccupancy(state);
+  if (shouldShowPotionContext(state)) {
+    return {
+      type: "use-potion",
+      label: "Use Potion",
+      run: () => usePotionFromContext(state),
+    };
+  }
+
   const attackTarget = getAdjacentMonsterTarget(state, occ);
   if (attackTarget) {
     const nm = MONSTER_TYPES[attackTarget.type]?.name ?? attackTarget.type;
@@ -1976,6 +2017,11 @@ function resolveContextAction(state, occupancy = null) {
       run: () => attackMonsterById(state, attackTarget.id),
     };
   }
+
+  const here = state.world.getTile(p.x, p.y, p.z);
+  if (here === STAIRS_DOWN) return { type: "stairs-down", label: stairContextLabel(state, "down"), run: () => tryUseStairs(state, "down") };
+  if (here === STAIRS_UP) return { type: "stairs-up", label: stairContextLabel(state, "up"), run: () => tryUseStairs(state, "up") };
+
   const itemsHere = getItemsAt(state, p.x, p.y, p.z);
   if (itemsHere.length) {
     const shop = itemsHere.find((e) => e.type === "shopkeeper");
@@ -2015,6 +2061,15 @@ function resolveContextAction(state, occupancy = null) {
   return null;
 }
 
+function monsterThreatScore(state, monster) {
+  const spec = monsterStatsForDepth(monster?.type, monster?.z ?? state.player.z);
+  const level = Math.max(1, spec?.level ?? 1);
+  const maxHp = Math.max(1, spec?.maxHp ?? 1);
+  const atkHi = Math.max(1, spec?.atkHi ?? 1);
+  const atkLo = Math.max(1, spec?.atkLo ?? 1);
+  return level * 100000 + maxHp * 8 + atkHi * 6 + atkLo * 3;
+}
+
 function getAdjacentMonsterTarget(state, occupancy = null) {
   const list = getAdjacentMonsters(state, occupancy);
   return list.length ? list[0].monster : null;
@@ -2037,8 +2092,13 @@ function getAdjacentMonsters(state, occupancy = null) {
     if (!id) continue;
     const m = state.entities.get(id);
     if (!m || m.kind !== "monster") continue;
-    out.push({ monster: m, dir: d.dir });
+    out.push({ monster: m, dir: d.dir, order: out.length, score: monsterThreatScore(state, m) });
   }
+  out.sort((a, b) =>
+    (b.score - a.score) ||
+    ((b.monster?.hp ?? 0) - (a.monster?.hp ?? 0)) ||
+    (a.order - b.order)
+  );
   return out;
 }
 
@@ -2087,6 +2147,7 @@ function iconSpecForMonsterType(type) {
 
 function iconSpecForContextAction(state, action) {
   if (!action) return null;
+  if (action.type === "use-potion") return iconSpecForItemType("potion");
   if (action.type === "attack") {
     const mType = action.monsterType ?? state.entities.get(action.targetMonsterId)?.type ?? null;
     return iconSpecForMonsterType(mType);
@@ -2106,11 +2167,13 @@ function iconSpecForContextAction(state, action) {
   }
   if (action.type === "stairs-up") {
     if (state.player.z === 0) return { spriteId: "surface_entrance" };
+    if (SPRITE_SOURCES.stairs_up) return { spriteId: "stairs_up" };
     const g = tileGlyph(STAIRS_UP);
     return g ? { glyph: g.g, color: g.c } : null;
   }
   if (action.type === "stairs-down") {
     if (state.player.z === SURFACE_LEVEL) return { spriteId: "surface_entrance" };
+    if (SPRITE_SOURCES.stairs_down) return { spriteId: "stairs_down" };
     const g = tileGlyph(STAIRS_DOWN);
     return g ? { glyph: g.g, color: g.c } : null;
   }
@@ -2156,7 +2219,7 @@ function updateContextActionButton(state, occupancy = null) {
     contextActionBtn.disabled = true;
     setContextButtonContent(contextActionBtn, "No Action", null);
     contextActionBtn.dataset.actionType = "none";
-    updatePotionContextButton(state);
+    updatePotionContextButton(state, null);
     updateAttackContextButtons(state, occupancy, null);
     return;
   }
@@ -2164,7 +2227,7 @@ function updateContextActionButton(state, occupancy = null) {
   setContextButtonContent(contextActionBtn, action.label, iconSpecForContextAction(state, action));
   contextActionBtn.dataset.actionType = action.type;
 
-  updatePotionContextButton(state);
+  updatePotionContextButton(state, action);
   updateAttackContextButtons(state, occupancy, action);
 }
 
@@ -2190,8 +2253,13 @@ function usePotionFromContext(state) {
   return false;
 }
 
-function updatePotionContextButton(state) {
+function updatePotionContextButton(state, primaryAction = null) {
   if (!contextPotionBtn) return;
+  if (primaryAction?.type === "use-potion") {
+    contextPotionBtn.style.display = "none";
+    contextPotionBtn.disabled = true;
+    return;
+  }
   if (!shouldShowPotionContext(state)) {
     contextPotionBtn.style.display = "none";
     contextPotionBtn.disabled = true;
@@ -2333,6 +2401,17 @@ function xpToNext(level) {
   return (8 + level * 6) * XP_SCALE;
 }
 
+function hpGainForLevel(level) {
+  return (3 + Math.floor(Math.max(1, level) / 3)) * COMBAT_SCALE;
+}
+
+function maxHpForLevel(level) {
+  const lv = Math.max(1, Math.floor(level));
+  let hp = 1800;
+  for (let l = 2; l <= lv; l++) hp += hpGainForLevel(l);
+  return hp;
+}
+
 function xpFromDamage(dmg) {
   // Normalize combat-scaled damage back to legacy-sized units, then award a modest amount per point.
   return Math.max(0, Math.floor((dmg / COMBAT_SCALE) * XP_DAMAGE_PER_LEGACY_DAMAGE));
@@ -2345,6 +2424,11 @@ function xpKillBonus(monsterType) {
 
 function xpExplorationBonus(roomCount, corridorCount) {
   return Math.max(0, roomCount * 25 + corridorCount * 15);
+}
+
+function potionHealAmount(maxHp) {
+  const hpMax = Math.max(1, Math.floor(maxHp ?? 1));
+  return Math.max(1, Math.floor(hpMax * POTION_HEAL_PCT));
 }
 
 function recalcDerivedStats(state) {
@@ -3030,14 +3114,22 @@ function applyReveal(state, radius = 28) {
 function grantXP(state, amount) {
   const p = state.player;
   if (!Number.isFinite(amount) || amount <= 0) return;
+  const expectedMaxHp = maxHpForLevel(p.level);
+  if (p.maxHp !== expectedMaxHp) {
+    const ratio = clamp((p.hp ?? expectedMaxHp) / Math.max(1, p.maxHp ?? expectedMaxHp), 0, 1);
+    p.maxHp = expectedMaxHp;
+    p.hp = clamp(Math.round(expectedMaxHp * ratio), 0, expectedMaxHp);
+  }
   p.xp += amount;
   pushLog(state, `+${amount} XP`);
 
   while (p.xp >= xpToNext(p.level)) {
     p.xp -= xpToNext(p.level);
+    const prevLevel = p.level;
+    const prevMaxHp = maxHpForLevel(prevLevel);
     p.level += 1;
-    const hpGain = (3 + Math.floor(p.level / 3)) * COMBAT_SCALE;
-    p.maxHp += hpGain;
+    p.maxHp = maxHpForLevel(p.level);
+    const hpGain = p.maxHp - prevMaxHp;
     p.hp = clamp(p.hp + hpGain, 0, p.maxHp);
     pushLog(state, `*** Level up! You are now level ${p.level}. (+${hpGain} max HP)`);
   }
@@ -3383,10 +3475,10 @@ function useInventoryIndex(state, idx) {
   if (!it) return;
 
   if (it.type === "potion") {
-    const heal = (6 + Math.floor(Math.random() * 7)) * COMBAT_SCALE;
+    const heal = potionHealAmount(p.maxHp);
     const before = p.hp;
     p.hp = clamp(p.hp + heal, 0, p.maxHp);
-    pushLog(state, `You drink a potion. (+${p.hp - before} HP)`);
+    pushLog(state, `You drink a potion. (+${p.hp - before} HP, ${Math.round(POTION_HEAL_PCT * 100)}% max)`);
 
     if (isStackable(it.type)) {
       it.amount -= 1;
@@ -3540,9 +3632,16 @@ function interactShrine(state) {
 
 // ---------- Stairs + landing carve ----------
 function carveLandingAndConnect(state, x, y, z, centerTile) {
-  for (let dy = -2; dy <= 2; dy++)
-    for (let dx = -2; dx <= 2; dx++)
-      state.world.setTile(x + dx, y + dy, z, FLOOR);
+  for (let dy = -2; dy <= 2; dy++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      const tx = x + dx;
+      const ty = y + dy;
+      const cur = state.world.getTile(tx, ty, z);
+      // Preserve any existing stairs so adjacent up/down pairs are not erased.
+      if (cur === STAIRS_UP || cur === STAIRS_DOWN) continue;
+      state.world.setTile(tx, ty, z, FLOOR);
+    }
+  }
 
   state.world.setTile(x, y, z, centerTile);
 
@@ -3823,6 +3922,8 @@ function monstersTurn(state) {
 const GLYPH_FONT = `bold ${Math.floor(TILE * 1.12)}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace`;
 const MONSTER_SPRITE_SIZE = Math.round(TILE * 1.6);
 const ITEM_SPRITE_SIZE = Math.round(TILE * 1.6);
+const DOOR_SPRITE_SIZE = Math.round(ITEM_SPRITE_SIZE * 1.1);
+const STAIRS_SPRITE_SIZE = Math.round(TILE * 2.15);
 const SURFACE_ENTRANCE_SPRITE_SIZE = Math.round(TILE * 2.25);
 const SHOP_SPRITE_SIZE = Math.round(TILE * 3.25);
 const PLAYER_SPRITE_SIZE = Math.round(TILE * 2.1);
@@ -3856,6 +3957,8 @@ const SPRITE_SOURCES = {
   door_green_open: "./client/assets/door_green_open_full.png",
   door_blue_closed: "./client/assets/door_blue_closed_full.png",
   door_blue_open: "./client/assets/door_blue_open_full.png",
+  stairs_up: "./client/assets/stairs_up_full.png",
+  stairs_down: "./client/assets/stairs_down_full.png",
   surface_entrance: "./client/assets/surface_entrance_full.png",
   weapon_bronze_dagger: "./client/assets/bronze_dagger_full.png",
   weapon_bronze_sword: "./client/assets/bronze_sword_full.png",
@@ -4005,6 +4108,8 @@ function tileSpriteId(state, wx, wy, wz, t) {
     const link = state.surfaceLink ?? resolveSurfaceLink(state);
     if (link && wx === link.x && wy === link.y) return "surface_entrance";
   }
+  if (t === STAIRS_UP) return "stairs_up";
+  if (t === STAIRS_DOWN) return "stairs_down";
   return null;
 }
 function materialIdFromItemType(type) {
@@ -4212,9 +4317,10 @@ function draw(state) {
       const tileSpriteKind = tileSpriteId(state, wx, wy, player.z, t);
       const tileSprite = getSpriteIfReady(tileSpriteKind);
       if (tileSprite) {
-        const tileSpriteSize = tileSpriteKind === "surface_entrance"
-          ? SURFACE_ENTRANCE_SPRITE_SIZE
-          : ITEM_SPRITE_SIZE;
+        let tileSpriteSize = ITEM_SPRITE_SIZE;
+        if (tileSpriteKind === "surface_entrance") tileSpriteSize = SURFACE_ENTRANCE_SPRITE_SIZE;
+        else if (tileSpriteKind === "stairs_up" || tileSpriteKind === "stairs_down") tileSpriteSize = STAIRS_SPRITE_SIZE;
+        else if (tileSpriteKind?.startsWith("door_")) tileSpriteSize = DOOR_SPRITE_SIZE;
         deferredTileSprites.push({ sx, sy, img: tileSprite, size: tileSpriteSize });
       } else {
         const tg = tileGlyph(t);
@@ -4926,6 +5032,30 @@ debugDepthInputEl?.addEventListener("keydown", (e) => {
   e.preventDefault();
   e.stopPropagation();
   runDebugDepthTeleport();
+});
+const runDebugSetLevel = () => {
+  if (!game || !debugLevelInputEl) return;
+  const raw = debugLevelInputEl.value.trim();
+  if (!raw.length) {
+    pushLog(game, "Enter a level value.");
+    return;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) {
+    pushLog(game, "Invalid level value.");
+    return;
+  }
+  setPlayerLevelDebug(game, parsed);
+};
+debugLevelGoEl?.addEventListener("click", (e) => {
+  e.preventDefault();
+  runDebugSetLevel();
+});
+debugLevelInputEl?.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  e.stopPropagation();
+  runDebugSetLevel();
 });
 shopCloseBtnEl?.addEventListener("click", () => {
   closeShopOverlay();
