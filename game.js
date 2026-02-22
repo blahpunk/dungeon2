@@ -1352,6 +1352,11 @@ function resolveContextAction(state, occupancy = null) {
   if (here === STAIRS_UP) return { type: "stairs-up", label: "Ascend Stairs", run: () => tryUseStairs(state, "up") };
 
   const occ = occupancy ?? buildOccupancy(state);
+  const attackTarget = getAdjacentMonsterTarget(state, occ);
+  if (attackTarget) {
+    const nm = MONSTER_TYPES[attackTarget.type]?.name ?? attackTarget.type;
+    return { type: "attack", label: `Attack ${nm}`, run: () => attackAdjacentMonster(state, occ) };
+  }
   const itemsHere = getItemsAt(state, p.x, p.y, p.z);
   if (itemsHere.length) {
     const shop = itemsHere.find((e) => e.type === "shopkeeper");
@@ -1384,6 +1389,31 @@ function resolveContextAction(state, occupancy = null) {
     if (t === DOOR_CLOSED) return { type: "open-door", label: "Open Door", run: () => tryOpenAdjacentDoor(state) };
   }
   return null;
+}
+
+function getAdjacentMonsterTarget(state, occupancy = null) {
+  const p = state.player;
+  const occ = occupancy ?? buildOccupancy(state);
+  const dirs = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+  for (const [dx, dy] of dirs) {
+    const x = p.x + dx;
+    const y = p.y + dy;
+    const id = occ.monsters.get(keyXYZ(x, y, p.z));
+    if (!id) continue;
+    const m = state.entities.get(id);
+    if (m?.kind === "monster") return m;
+  }
+  return null;
+}
+
+function attackAdjacentMonster(state, occupancy = null) {
+  const m = getAdjacentMonsterTarget(state, occupancy);
+  if (!m) {
+    pushLog(state, "No adjacent monster to attack.");
+    return false;
+  }
+  playerAttack(state, m);
+  return true;
 }
 
 function updateContextActionButton(state, occupancy = null) {
@@ -2196,9 +2226,8 @@ function playerMoveOrAttack(state, dx, dy) {
   const { monsters } = buildOccupancy(state);
   const mid = monsters.get(keyXYZ(nx, ny, nz));
   if (mid) {
-    const m = state.entities.get(mid);
-    if (m) playerAttack(state, m);
-    return true;
+    pushLog(state, "An enemy blocks the way. Use Attack context action.");
+    return false;
   }
 
   if (!state.world.isPassable(nx, ny, nz)) {
@@ -3222,6 +3251,11 @@ function onKey(state, e) {
 
   // E is now contextual: stairs (up/down) OR shop/shrine interaction
   else if (k === "e") { e.preventDefault(); takeTurn(state, interactContext(state)); }
+  else if (k === "enter") {
+    e.preventDefault();
+    const action = resolveContextAction(state);
+    if (action) takeTurn(state, action.run());
+  }
 
   else if (k === "i") { e.preventDefault(); renderInventory(state); }
   else if (k === "m") { e.preventDefault(); minimapEnabled = !minimapEnabled; saveNow(state); }
@@ -3714,17 +3748,12 @@ try {
 
       const handleDpad = (dx, dy) => {
         if (!game) return;
-        if (dx === 0 && dy === 0) takeTurn(game, waitTurn(game));
-        else takeTurn(game, playerMoveOrAttack(game, dx, dy));
-      };
-
-      const handleAction = (action) => {
-        if (!game) return;
-        if (action === 'interact') takeTurn(game, interactContext(game));
-        else if (action === 'pickup') takeTurn(game, pickup(game));
-        else if (action === 'wait') takeTurn(game, waitTurn(game));
-        else if (action === 'minimap') { minimapEnabled = !minimapEnabled; saveNow(game); }
-        else if (action === 'inventory') renderInventory(game);
+        if (dx === 0 && dy === 0) {
+          const action = resolveContextAction(game);
+          if (action) takeTurn(game, action.run());
+        } else {
+          takeTurn(game, playerMoveOrAttack(game, dx, dy));
+        }
       };
 
       // Pointer-based input handling with tap-vs-hold semantics for reliable touch
@@ -3734,7 +3763,7 @@ try {
 
       tc.addEventListener('pointerdown', (ev) => {
         try {
-          const btn = ev.target.closest && ev.target.closest('.dpad-btn, .action-btn');
+          const btn = ev.target.closest && ev.target.closest('.dpad-btn');
           if (!btn) return;
           ev.preventDefault();
           try { btn.setPointerCapture && btn.setPointerCapture(ev.pointerId); } catch {}
@@ -3749,10 +3778,6 @@ try {
               entry.firedRepeat = true;
               entry.repeatInterval = setInterval(() => { try { handleDpad(dx, dy); } catch {} }, repeatInterval);
             }, initialDelay);
-            activePointers.set(ev.pointerId, entry);
-          } else if (btn.classList.contains('action-btn')) {
-            const action = btn.dataset.action;
-            const entry = { btn, type: 'action', start: Date.now(), action };
             activePointers.set(ev.pointerId, entry);
           }
         } catch (e) { /* ignore */ }
@@ -3773,8 +3798,6 @@ try {
             if (!entry.firedRepeat && elapsed < initialDelay && invokeOnTap) {
               try { handleDpad(entry.dx, entry.dy); } catch {}
             }
-          } else if (entry.type === 'action') {
-            if (invokeOnTap) try { handleAction(entry.action); } catch {}
           }
           activePointers.delete(ev.pointerId);
         } catch (e) { /* ignore */ }

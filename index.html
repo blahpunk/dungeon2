@@ -554,7 +554,7 @@
         .control-grid td { padding: 6px; }
         .context-buttons { display: flex; flex-direction: column; gap: 8px; }
 
-        .dpad-btn, .action-btn {
+        .dpad-btn {
           background: rgba(24,32,50,0.98);
           color: #e6e6e6;
           border: 1px solid rgba(255,255,255,0.05);
@@ -568,8 +568,6 @@
           touch-action: manipulation;
           padding: 6px;
         }
-
-        .action-btn { min-width: 72px; padding: 8px 10px; }
         .dpad-btn.center { width: 56px; height: 56px; border-radius: 50%; }
       }
     </style>
@@ -722,7 +720,7 @@
                 </tr>
                 <tr>
                   <td><button class="dpad-btn" data-dx="-1" data-dy="0" title="Move Left">←</button></td>
-                  <td><button class="dpad-btn center" data-dx="0" data-dy="0" title="Wait">•</button></td>
+                  <td><button class="dpad-btn center" data-dx="0" data-dy="0" title="Context Action">◉</button></td>
                   <td><button class="dpad-btn" data-dx="1" data-dy="0" title="Move Right">→</button></td>
                 </tr>
                 <tr>
@@ -731,13 +729,6 @@
                   <td></td>
                 </tr>
               </table>
-            </td>
-            <td>
-              <div class="context-buttons" id="actions" aria-label="Actions">
-                <button class="action-btn" data-action="interact" title="Use">Use</button>
-                <button class="action-btn" data-action="pickup" title="Take">Take</button>
-                <button class="action-btn" data-action="wait" title="Wait">Wait</button>
-              </div>
             </td>
           </tr>
         </table>
