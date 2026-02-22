@@ -171,58 +171,65 @@ function keyXY(x, y) { return `${x},${y}`; }
 function inBounds(x, y) { return x >= 0 && y >= 0 && x < CHUNK && y < CHUNK; }
 
 // ---------- Themes ----------
+function hueWrap(h) {
+  let out = h % 360;
+  if (out < 0) out += 360;
+  return out;
+}
+function hslColor(h, s, l) {
+  return `hsl(${Math.round(hueWrap(h))} ${Math.round(s)}% ${Math.round(l)}%)`;
+}
+function depthHueName(h) {
+  const names = ["Red", "Orange", "Yellow", "Lime", "Green", "Teal", "Cyan", "Azure", "Blue", "Violet", "Magenta", "Rose"];
+  const idx = Math.floor(hueWrap(h) / 30) % names.length;
+  return names[idx];
+}
 function themeForDepth(z) {
-  if (z <= 2) return {
-    name: "Stone",
-    wallV: "#2a3142", wallNV: "#161b26",
-    floorV: "#0f1a2e", floorNV: "#0b1220",
-    doorC_V: "#3a2f1e", doorC_NV: "#211a10",
-    doorO_V: "#2b3a50", doorO_NV: "#162033",
-    lockR_V: "#4a1f1f", lockR_NV: "#2b1111",
-    lockB_V: "#1f2f4a", lockB_NV: "#111a2b",
-    lockG_V: "#1f4a2a", lockG_NV: "#112b18",
-    downV: "#263a2a", downNV: "#162218",
-    upV: "#2a263a", upNV: "#1b1623",
-    overlay: "rgba(0,0,0,0.55)",
-  };
-  if (z <= 6) return {
-    name: "Moss",
-    wallV: "#2b3a3c", wallNV: "#172224",
-    floorV: "#102822", floorNV: "#0b1916",
-    doorC_V: "#3a2f1e", doorC_NV: "#211a10",
-    doorO_V: "#20403a", doorO_NV: "#102622",
-    lockR_V: "#4a1f1f", lockR_NV: "#2b1111",
-    lockB_V: "#1f2f4a", lockB_NV: "#111a2b",
-    lockG_V: "#1f4a2a", lockG_NV: "#112b18",
-    downV: "#1f3a2a", downNV: "#132217",
-    upV: "#2a263a", upNV: "#1b1623",
-    overlay: "rgba(0,0,0,0.55)",
-  };
-  if (z <= 10) return {
-    name: "Crypt",
-    wallV: "#3a2f3a", wallNV: "#211a21",
-    floorV: "#241326", floorNV: "#160b18",
-    doorC_V: "#3a2f1e", doorC_NV: "#211a10",
-    doorO_V: "#3a2340", doorO_NV: "#221627",
-    lockR_V: "#5a2222", lockR_NV: "#311111",
-    lockB_V: "#2a3c66", lockB_NV: "#16213a",
-    lockG_V: "#2a6640", lockG_NV: "#163a22",
-    downV: "#243a2a", downNV: "#162218",
-    upV: "#2a263a", upNV: "#1b1623",
-    overlay: "rgba(0,0,0,0.58)",
-  };
+  if (z <= SURFACE_LEVEL) {
+    return {
+      name: "Surface",
+      wallV: "#455a52", wallNV: "#2a3832",
+      floorV: "#8da380", floorNV: "#6e8462",
+      doorC_V: "#6e5a3e", doorC_NV: "#4a3b29",
+      doorO_V: "#4f7b63", doorO_NV: "#375241",
+      lockR_V: "#8e4040", lockR_NV: "#5a2626",
+      lockB_V: "#40688e", lockB_NV: "#26415a",
+      lockG_V: "#3f8e55", lockG_NV: "#275a37",
+      downV: "#7b6a3d", downNV: "#514528",
+      upV: "#6c5a80", upNV: "#453a52",
+      overlay: "rgba(0,0,0,0.35)",
+    };
+  }
+
+  const depth = Math.max(0, z);
+  const hue = (depth * 28) % 360;
+  const wallHue = hue + 18;
+  const floorHue = hue;
+  const doorHue = hue + 34;
+  const downHue = hue + 58;
+  const upHue = hue - 52;
+
   return {
-    name: "Abyss",
-    wallV: "#3a3a2b", wallNV: "#222217",
-    floorV: "#1f1f0f", floorNV: "#12120b",
-    doorC_V: "#3a2f1e", doorC_NV: "#211a10",
-    doorO_V: "#3a3a1a", doorO_NV: "#232312",
-    lockR_V: "#6b2a2a", lockR_NV: "#3a1515",
-    lockB_V: "#2a4b7d", lockB_NV: "#1a2a46",
-    lockG_V: "#2a7d46", lockG_NV: "#1a462a",
-    downV: "#2a3a26", downNV: "#182216",
-    upV: "#2a263a", upNV: "#1b1623",
-    overlay: "rgba(0,0,0,0.62)",
+    name: `${depthHueName(hue)} Depth`,
+    wallV: hslColor(wallHue, 24, 28),
+    wallNV: hslColor(wallHue, 20, 17),
+    floorV: hslColor(floorHue, 42, 18),
+    floorNV: hslColor(floorHue, 34, 11),
+    doorC_V: hslColor(doorHue, 40, 24),
+    doorC_NV: hslColor(doorHue, 32, 14),
+    doorO_V: hslColor(doorHue + 18, 36, 27),
+    doorO_NV: hslColor(doorHue + 18, 30, 16),
+    lockR_V: hslColor(0, 58, 26),
+    lockR_NV: hslColor(0, 45, 15),
+    lockB_V: hslColor(214, 56, 30),
+    lockB_NV: hslColor(214, 42, 17),
+    lockG_V: hslColor(132, 52, 28),
+    lockG_NV: hslColor(132, 40, 16),
+    downV: hslColor(downHue, 42, 25),
+    downNV: hslColor(downHue, 34, 15),
+    upV: hslColor(upHue, 38, 27),
+    upNV: hslColor(upHue, 30, 16),
+    overlay: "rgba(0,0,0,0.52)",
   };
 }
 
