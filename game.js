@@ -2108,9 +2108,12 @@ const SPRITE_SOURCES = {
   key_red: "./client/assets/red_key_full.png",
   key_blue: "./client/assets/blue_key_full.png",
   key_green: "./client/assets/green_key_full.png",
+  chest: "./client/assets/chest_full.png",
   chest_red: "./client/assets/red_chest_full.png",
   chest_blue: "./client/assets/blue_chest_full.png",
   chest_green: "./client/assets/green_chest_full.png",
+  gold: "./client/assets/coins_full.png",
+  potion: "./client/assets/potion_hp_full.png",
 };
 const spriteImages = {};
 const spriteProcessed = {};
@@ -2201,7 +2204,10 @@ function monsterSpriteId(type) {
 }
 function itemSpriteId(ent) {
   if (!ent?.type) return null;
+  if (ent.type === "gold") return "gold";
+  if (ent.type === "potion") return "potion";
   if (ent.type === "key_red" || ent.type === "key_blue" || ent.type === "key_green") return ent.type;
+  if (ent.type === "chest" && !ent.locked) return "chest";
   if (ent.type === "chest" && ent.locked) {
     if (ent.keyType === "key_red") return "chest_red";
     if (ent.keyType === "key_blue") return "chest_blue";
