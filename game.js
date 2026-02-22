@@ -195,6 +195,56 @@ function setDebugFlag(state, key, enabled) {
   if (key === "freeShopping") pushLog(state, `Free shopping ${next ? "enabled" : "disabled"}.`);
   saveNow(state);
 }
+function cellHasPassableNeighbor(world, x, y, z) {
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+  for (const [dx, dy] of dirs) {
+    if (world.isPassable(x + dx, y + dy, z)) return true;
+  }
+  return false;
+}
+
+function findNearestSafeTeleportCell(state, x, y, z, maxRadius = 24) {
+  let best = null;
+  let bestDist = Infinity;
+  for (let dy = -maxRadius; dy <= maxRadius; dy++) {
+    for (let dx = -maxRadius; dx <= maxRadius; dx++) {
+      const d = Math.abs(dx) + Math.abs(dy);
+      if (d > maxRadius || d >= bestDist) continue;
+      const nx = x + dx;
+      const ny = y + dy;
+      if (!state.world.isPassable(nx, ny, z)) continue;
+      if (!cellHasPassableNeighbor(state.world, nx, ny, z)) continue;
+      best = { x: nx, y: ny };
+      bestDist = d;
+    }
+  }
+  return best;
+}
+
+function ensureTeleportLanding(state) {
+  const p = state.player;
+  const safe = findNearestSafeTeleportCell(state, p.x, p.y, p.z, 24);
+  if (safe) {
+    p.x = safe.x;
+    p.y = safe.y;
+    return;
+  }
+
+  if (p.z === SURFACE_LEVEL) {
+    p.x = 0;
+    p.y = 0;
+    state.world.setTile(0, 0, p.z, STAIRS_DOWN);
+    return;
+  }
+
+  carveLandingAndConnect(state, p.x, p.y, p.z, FLOOR);
+  if (!state.world.isPassable(p.x, p.y, p.z)) state.world.setTile(p.x, p.y, p.z, FLOOR);
+
+  if (!cellHasPassableNeighbor(state.world, p.x, p.y, p.z)) {
+    state.world.setTile(p.x + 1, p.y, p.z, FLOOR);
+  }
+}
+
 function teleportPlayerToDepth(state, targetDepth) {
   const p = state.player;
   if (!p || p.dead) return false;
@@ -210,7 +260,7 @@ function teleportPlayerToDepth(state, targetDepth) {
   if (newZ === SURFACE_LEVEL) state.world.ensureChunksAround(0, 0, newZ, 1);
 
   p.z = newZ;
-  if (!state.world.isPassable(p.x, p.y, p.z)) state.world.setTile(p.x, p.y, p.z, FLOOR);
+  ensureTeleportLanding(state);
   if (newZ === 0) ensureSurfaceLinkTile(state);
 
   hydrateNearby(state);
@@ -3494,6 +3544,8 @@ function carveLandingAndConnect(state, x, y, z, centerTile) {
   for (let ly = 1; ly < CHUNK - 1; ly++) for (let lx = 1; lx < CHUNK - 1; lx++) {
     const wx = cx * CHUNK + lx;
     const wy = cy * CHUNK + ly;
+    // Ignore the freshly carved landing footprint so we connect outwards.
+    if (Math.abs(wx - x) <= 2 && Math.abs(wy - y) <= 2) continue;
     const t = state.world.getTile(wx, wy, z);
     if (t === WALL || tileIsLocked(t)) continue;
     const dx = wx - x, dy = wy - y;
