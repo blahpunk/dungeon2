@@ -47,6 +47,16 @@ const effectsTextEl = document.getElementById("effectsText");
 const deathOverlayEl = document.getElementById("deathOverlay");
 const btnRespawnEl = document.getElementById("btnRespawn");
 const btnNewDungeonEl = document.getElementById("btnNewDungeon");
+const shopOverlayEl = document.getElementById("shopOverlay");
+const shopCloseBtnEl = document.getElementById("shopCloseBtn");
+const shopTabBuyEl = document.getElementById("shopTabBuy");
+const shopTabSellEl = document.getElementById("shopTabSell");
+const shopGoldEl = document.getElementById("shopGold");
+const shopRefreshEl = document.getElementById("shopRefresh");
+const shopListEl = document.getElementById("shopList");
+const shopDetailTitleEl = document.getElementById("shopDetailTitle");
+const shopDetailBodyEl = document.getElementById("shopDetailBody");
+const shopActionBtnEl = document.getElementById("shopActionBtn");
 
 // Right-side panels: panels are always visible; keep references for layout if needed
 const wrapEl = document.getElementById("wrap");
@@ -67,6 +77,7 @@ mini.height = (MINI_RADIUS * 2 + 1) * MINI_SCALE;
 
 let fogEnabled = true;
 let minimapEnabled = true;
+const shopUi = { open: false, mode: "buy", selectedBuy: 0, selectedSell: 0 };
 
 // ---------- RNG (deterministic base gen) ----------
 function xmur3(str) {
@@ -715,9 +726,44 @@ const MONSTER_TYPES = {
   archer:   { name: "Archer",   maxHp: 1200, atkLo: 200, atkHi: 400, xp: 7,  glyph: "a", range: 6, cdTurns: 2 },
 };
 
+const WEAPON_MATERIALS = ["bronze", "iron", "steel"];
+const WEAPON_KINDS = ["dagger", "sword", "axe"];
+const ARMOR_MATERIALS = ["leather", "iron", "steel"];
+const ARMOR_SLOTS = ["chest", "legs"];
+
+const WEAPON_KIND_LABEL = {
+  dagger: "Dagger",
+  sword: "Sword",
+  axe: "Axe",
+};
+const WEAPON_KIND_ATK = {
+  dagger: 90,
+  sword: 150,
+  axe: 210,
+};
+const WEAPON_MATERIAL_ATK = {
+  bronze: 0,
+  iron: 120,
+  steel: 260,
+};
+const ARMOR_MATERIAL_DEF = {
+  leather: 60,
+  iron: 150,
+  steel: 250,
+};
+const ARMOR_SLOT_DEF = {
+  chest: 130,
+  legs: 90,
+};
+
+function capWord(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+function weaponType(material, kind) { return `weapon_${material}_${kind}`; }
+function armorType(material, slot) { return `armor_${material}_${slot}`; }
+
 const ITEM_TYPES = {
   potion: { name: "Potion" },
   gold: { name: "Gold" },
+  shopkeeper: { name: "Shopkeeper" },
 
   key_red: { name: "Red Key" },
   key_blue: { name: "Blue Key" },
@@ -725,26 +771,361 @@ const ITEM_TYPES = {
 
   chest: { name: "Chest" },
   shrine: { name: "Shrine" },
-
-  weapon_dagger: { name: "Dagger" },
-  weapon_sword: { name: "Sword" },
-  weapon_axe: { name: "Axe" },
-
-  armor_leather: { name: "Leather Armor" },
-  armor_chain: { name: "Chainmail" },
-  armor_plate: { name: "Plate Armor" },
 };
 
-const WEAPONS = {
-  weapon_dagger: { atkBonus: 100 },
-  weapon_sword:  { atkBonus: 200 },
-  weapon_axe:    { atkBonus: 300 },
+const WEAPONS = {};
+for (const material of WEAPON_MATERIALS) {
+  for (const kind of WEAPON_KINDS) {
+    const id = weaponType(material, kind);
+    ITEM_TYPES[id] = { name: `${capWord(material)} ${WEAPON_KIND_LABEL[kind]}` };
+    WEAPONS[id] = { atkBonus: WEAPON_KIND_ATK[kind] + WEAPON_MATERIAL_ATK[material] };
+  }
+}
+
+const ARMOR_PIECES = {};
+for (const material of ARMOR_MATERIALS) {
+  for (const slot of ARMOR_SLOTS) {
+    const id = armorType(material, slot);
+    const slotLabel = slot === "chest" ? "Chest Armor" : "Leg Armor";
+    ITEM_TYPES[id] = { name: `${capWord(material)} ${slotLabel}` };
+    ARMOR_PIECES[id] = { slot, defBonus: ARMOR_MATERIAL_DEF[material] + ARMOR_SLOT_DEF[slot] };
+  }
+}
+
+const LEGACY_ITEM_MAP = {
+  weapon_dagger: weaponType("bronze", "dagger"),
+  weapon_sword: weaponType("bronze", "sword"),
+  weapon_axe: weaponType("bronze", "axe"),
+  weapon_mace: weaponType("iron", "axe"),
+  weapon_greatsword: weaponType("steel", "sword"),
+  weapon_runeblade: weaponType("steel", "axe"),
+  armor_leather: armorType("leather", "chest"),
+  armor_chain: armorType("iron", "chest"),
+  armor_plate: armorType("steel", "chest"),
 };
-const ARMORS = {
-  armor_leather: { defBonus: 100 },
-  armor_chain:   { defBonus: 200 },
-  armor_plate:   { defBonus: 300 },
-};
+
+function normalizeItemType(type) {
+  return LEGACY_ITEM_MAP[type] ?? type;
+}
+
+function weightedPick(rng, entries) {
+  const total = entries.reduce((s, e) => s + e.w, 0);
+  let r = rng() * total;
+  for (const e of entries) {
+    r -= e.w;
+    if (r <= 0) return e.id;
+  }
+  return entries[entries.length - 1].id;
+}
+
+function weaponMaterialWeightsForDepth(z) {
+  if (z <= 0) return [{ id: "bronze", w: 82 }, { id: "iron", w: 18 }];
+  if (z <= 2) return [{ id: "bronze", w: 75 }, { id: "iron", w: 22 }, { id: "steel", w: 3 }];
+  if (z <= 5) return [{ id: "bronze", w: 58 }, { id: "iron", w: 34 }, { id: "steel", w: 8 }];
+  if (z <= 9) return [{ id: "bronze", w: 38 }, { id: "iron", w: 45 }, { id: "steel", w: 17 }];
+  return [{ id: "bronze", w: 20 }, { id: "iron", w: 45 }, { id: "steel", w: 35 }];
+}
+
+function armorMaterialWeightsForDepth(z) {
+  if (z <= 0) return [{ id: "leather", w: 82 }, { id: "iron", w: 18 }];
+  if (z <= 2) return [{ id: "leather", w: 74 }, { id: "iron", w: 23 }, { id: "steel", w: 3 }];
+  if (z <= 5) return [{ id: "leather", w: 57 }, { id: "iron", w: 35 }, { id: "steel", w: 8 }];
+  if (z <= 9) return [{ id: "leather", w: 35 }, { id: "iron", w: 47 }, { id: "steel", w: 18 }];
+  return [{ id: "leather", w: 18 }, { id: "iron", w: 48 }, { id: "steel", w: 34 }];
+}
+
+function weaponForDepth(z, rng = Math.random) {
+  const material = weightedPick(rng, weaponMaterialWeightsForDepth(z));
+  const kind = weightedPick(rng, [
+    { id: "dagger", w: 28 },
+    { id: "sword", w: 40 },
+    { id: "axe", w: 32 },
+  ]);
+  return weaponType(material, kind);
+}
+
+function armorForDepth(z, rng = Math.random) {
+  const material = weightedPick(rng, armorMaterialWeightsForDepth(z));
+  const slot = rng() < 0.56 ? "chest" : "legs";
+  return armorType(material, slot);
+}
+
+function itemMarketValue(type) {
+  if (type === "potion") return 60;
+  if (type === "gold") return 1;
+  if (type?.startsWith("weapon_")) {
+    const atk = WEAPONS[type]?.atkBonus ?? 0;
+    return Math.max(20, Math.floor(40 + atk * 0.55));
+  }
+  if (type?.startsWith("armor_")) {
+    const def = ARMOR_PIECES[type]?.defBonus ?? 0;
+    return Math.max(20, Math.floor(35 + def * 0.6));
+  }
+  return 20;
+}
+
+function shopBuyPrice(type, depth) {
+  const base = itemMarketValue(type);
+  const markup = type === "potion" ? 1.2 : (1.25 + Math.min(0.25, depth * 0.01));
+  return Math.max(5, Math.floor(base * markup));
+}
+
+function shopSellPrice(type) {
+  return Math.max(1, Math.floor(itemMarketValue(type) * 0.25));
+}
+
+function shopCatalogForDepth(depth) {
+  const d = Math.max(0, depth);
+  const items = [{ type: "potion", w: 10 }];
+
+  for (const kind of WEAPON_KINDS) {
+    items.push({ type: weaponType("bronze", kind), w: 9 });
+  }
+  for (const slot of ARMOR_SLOTS) {
+    items.push({ type: armorType("leather", slot), w: 8 });
+  }
+
+  const ironWeight = d <= 0 ? 2 : d <= 3 ? 3 : 5;
+  for (const kind of WEAPON_KINDS) {
+    items.push({ type: weaponType("iron", kind), w: ironWeight });
+  }
+  for (const slot of ARMOR_SLOTS) {
+    items.push({ type: armorType("iron", slot), w: Math.max(1, ironWeight - 1) });
+  }
+
+  const steelWeight = d < 4 ? 0 : d < 8 ? 1 : d < 12 ? 2 : 4;
+  if (steelWeight > 0) {
+    for (const kind of WEAPON_KINDS) {
+      items.push({ type: weaponType("steel", kind), w: steelWeight });
+    }
+    for (const slot of ARMOR_SLOTS) {
+      items.push({ type: armorType("steel", slot), w: steelWeight });
+    }
+  }
+
+  return items;
+}
+
+function drawUniqueWeightedItems(rng, weightedItems, count) {
+  const pool = weightedItems.map((x) => ({ ...x }));
+  const out = [];
+  while (pool.length && out.length < count) {
+    const total = pool.reduce((s, x) => s + Math.max(0, x.w), 0);
+    if (total <= 0) break;
+    let r = rng() * total;
+    let pickIndex = 0;
+    for (let i = 0; i < pool.length; i++) {
+      r -= Math.max(0, pool[i].w);
+      if (r <= 0) {
+        pickIndex = i;
+        break;
+      }
+    }
+    out.push(pool[pickIndex].type);
+    pool.splice(pickIndex, 1);
+  }
+  return out;
+}
+
+function ensureShopState(state) {
+  if (state.shop) return;
+  const now = Date.now();
+  const depth = Math.max(0, state.player.z) + Math.floor((state.player.level - 1) / 2);
+  const catalog = shopCatalogForDepth(depth);
+  const size = clamp(7 + Math.floor(depth / 4), 7, Math.min(12, catalog.length));
+  const types = drawUniqueWeightedItems(Math.random, catalog, size);
+  state.shop = {
+    stock: types.map((type) => ({ type, price: shopBuyPrice(type, depth) })),
+    lastRefreshMs: now,
+    nextRefreshMs: now + randInt(Math.random, 5, 15) * 60 * 1000,
+  };
+}
+
+function refreshShopStock(state, force = false) {
+  ensureShopState(state);
+  const now = Date.now();
+  if (!force && now < (state.shop?.nextRefreshMs ?? 0)) return false;
+
+  const depth = Math.max(0, state.player.z) + Math.floor((state.player.level - 1) / 2);
+  const catalog = shopCatalogForDepth(depth);
+  const targetCount = clamp(7 + Math.floor(depth / 4), 7, Math.min(12, catalog.length));
+  let nextTypes = (state.shop?.stock ?? []).map((s) => s.type).slice(0, targetCount);
+
+  if (nextTypes.length < targetCount) {
+    const fill = drawUniqueWeightedItems(
+      Math.random,
+      catalog.filter((c) => !nextTypes.includes(c.type)),
+      targetCount - nextTypes.length
+    );
+    nextTypes = nextTypes.concat(fill);
+  }
+
+  if (nextTypes.length === 0) {
+    nextTypes = drawUniqueWeightedItems(Math.random, catalog, targetCount);
+  } else {
+    const changeCount = randInt(Math.random, 1, nextTypes.length);
+    const idxOrder = [...nextTypes.keys()].sort(() => Math.random() - 0.5).slice(0, changeCount);
+    for (const idx of idxOrder) {
+      const current = nextTypes[idx];
+      const alternatives = catalog.filter((c) => c.type !== current && !nextTypes.includes(c.type));
+      if (!alternatives.length) continue;
+      const picked = drawUniqueWeightedItems(Math.random, alternatives, 1)[0];
+      if (picked) nextTypes[idx] = picked;
+    }
+  }
+
+  state.shop.stock = nextTypes.map((type) => ({ type, price: shopBuyPrice(type, depth) }));
+  state.shop.lastRefreshMs = now;
+  state.shop.nextRefreshMs = now + randInt(Math.random, 5, 15) * 60 * 1000;
+  return true;
+}
+
+function isShopOverlayOpen() {
+  return !!shopUi.open && !!shopOverlayEl?.classList.contains("show");
+}
+
+function formatMs(ms) {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const mm = Math.floor(totalSec / 60);
+  const ss = totalSec % 60;
+  return `${mm}:${String(ss).padStart(2, "0")}`;
+}
+
+function getSellableInventory(state) {
+  return state.inv
+    .map((entry, idx) => ({
+      idx,
+      type: entry.type,
+      amount: entry.amount ?? 1,
+      price: shopSellPrice(entry.type),
+    }))
+    .filter((entry) =>
+      entry.type === "potion" ||
+      entry.type.startsWith("weapon_") ||
+      entry.type.startsWith("armor_")
+    );
+}
+
+function closeShopOverlay() {
+  shopUi.open = false;
+  if (!shopOverlayEl) return;
+  shopOverlayEl.classList.remove("show");
+  shopOverlayEl.setAttribute("aria-hidden", "true");
+}
+
+function openShopOverlay(state, mode = "buy") {
+  if (!shopOverlayEl) return false;
+  ensureShopState(state);
+  refreshShopStock(state, false);
+  shopUi.open = true;
+  shopUi.mode = mode === "sell" ? "sell" : "buy";
+  if (shopUi.selectedBuy < 0) shopUi.selectedBuy = 0;
+  if (shopUi.selectedSell < 0) shopUi.selectedSell = 0;
+  shopOverlayEl.classList.add("show");
+  shopOverlayEl.setAttribute("aria-hidden", "false");
+  renderShopOverlay(state);
+  return true;
+}
+
+function renderShopOverlay(state) {
+  if (!shopUi.open || !shopOverlayEl || !shopListEl) return;
+
+  const now = Date.now();
+  const stock = state.shop?.stock ?? [];
+  const sellable = getSellableInventory(state);
+  const isBuyMode = shopUi.mode === "buy";
+  const entries = isBuyMode ? stock : sellable;
+
+  if (isBuyMode) shopUi.selectedBuy = clamp(shopUi.selectedBuy, 0, Math.max(0, entries.length - 1));
+  else shopUi.selectedSell = clamp(shopUi.selectedSell, 0, Math.max(0, entries.length - 1));
+  const selectedIdx = isBuyMode ? shopUi.selectedBuy : shopUi.selectedSell;
+  const selected = entries[selectedIdx] ?? null;
+
+  shopTabBuyEl?.classList.toggle("active", isBuyMode);
+  shopTabSellEl?.classList.toggle("active", !isBuyMode);
+  if (shopGoldEl) shopGoldEl.textContent = `Gold: ${state.player.gold}`;
+  if (shopRefreshEl) {
+    const remaining = (state.shop?.nextRefreshMs ?? now) - now;
+    shopRefreshEl.textContent = `Refresh in ${formatMs(remaining)}`;
+  }
+
+  shopListEl.innerHTML = "";
+  if (!entries.length) {
+    const empty = document.createElement("div");
+    empty.className = "muted";
+    empty.textContent = isBuyMode ? "(no stock available)" : "(nothing sellable in inventory)";
+    shopListEl.appendChild(empty);
+  } else {
+    entries.forEach((entry, idx) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = `shopItemBtn${idx === selectedIdx ? " active" : ""}`;
+      const nm = ITEM_TYPES[entry.type]?.name ?? entry.type;
+      if (isBuyMode) btn.textContent = `${idx + 1}. ${nm} - ${entry.price}g`;
+      else btn.textContent = `${idx + 1}. ${nm} x${entry.amount} - ${entry.price}g`;
+      btn.addEventListener("click", () => {
+        if (isBuyMode) shopUi.selectedBuy = idx;
+        else shopUi.selectedSell = idx;
+        renderShopOverlay(state);
+      });
+      shopListEl.appendChild(btn);
+    });
+  }
+
+  if (!selected) {
+    if (shopDetailTitleEl) shopDetailTitleEl.textContent = "Select an item";
+    if (shopDetailBodyEl) shopDetailBodyEl.textContent = "Tap an item to view details.";
+    if (shopActionBtnEl) {
+      shopActionBtnEl.textContent = isBuyMode ? "Buy" : "Sell";
+      shopActionBtnEl.disabled = true;
+      shopActionBtnEl.onclick = null;
+    }
+    return;
+  }
+
+  const selectedName = ITEM_TYPES[selected.type]?.name ?? selected.type;
+  const atk = WEAPONS[selected.type]?.atkBonus ?? 0;
+  const def = ARMOR_PIECES[selected.type]?.defBonus ?? 0;
+  const details = [];
+  if (atk > 0) details.push(`ATK Bonus: +${atk}`);
+  if (def > 0) details.push(`DEF Bonus: +${def}`);
+  if (!atk && !def && selected.type === "potion") details.push("Consumable healing item.");
+  if (!atk && !def && selected.type !== "potion") details.push("Utility item.");
+  if (!isBuyMode) details.push(`Inventory: ${selected.amount}`);
+  details.push(`Value: ${itemMarketValue(selected.type)}g`);
+
+  if (shopDetailTitleEl) shopDetailTitleEl.textContent = selectedName;
+  if (shopDetailBodyEl) {
+    const actionLine = isBuyMode ? `Buy price: ${selected.price}g` : `Sell price: ${selected.price}g`;
+    shopDetailBodyEl.textContent = `${details.join("\n")}\n${actionLine}`;
+  }
+  if (!shopActionBtnEl) return;
+  shopActionBtnEl.textContent = isBuyMode ? "Buy Selected" : "Sell One";
+  shopActionBtnEl.disabled = isBuyMode ? state.player.gold < selected.price : selected.amount <= 0;
+  shopActionBtnEl.onclick = () => {
+    if (isBuyMode) {
+      if (state.player.gold < selected.price) {
+        pushLog(state, "Not enough gold.");
+      } else {
+        state.player.gold -= selected.price;
+        invAdd(state, selected.type, 1);
+        pushLog(state, `Bought ${selectedName} for ${selected.price} gold.`);
+      }
+    } else {
+      if (!invConsume(state, selected.type, 1)) {
+        pushLog(state, "Couldn't complete that sale.");
+      } else {
+        state.player.gold += selected.price;
+        pushLog(state, `Sold ${selectedName} for ${selected.price} gold.`);
+      }
+    }
+    recalcDerivedStats(state);
+    renderInventory(state);
+    renderEquipment(state);
+    saveNow(state);
+    renderShopOverlay(state);
+  };
+}
 
 function weightedChoice(rng, entries) {
   const total = entries.reduce((s, e) => s + e.w, 0);
@@ -844,8 +1225,9 @@ function chunkBaseSpawns(worldSeed, chunk) {
     const c = cells[monsterCount + i];
     if (!c) break;
     const roll = rng();
-    // Potions common, gold next, keys occasionally as random floor spawns.
-    const type = roll < 0.68 ? "potion" : roll < 0.92 ? "gold" : keyTypeForDepth(z, rng);
+    // Potions are common; equipment appears regularly; keys are occasional.
+    const equipmentType = rng() < 0.6 ? weaponForDepth(z, rng) : armorForDepth(z, rng);
+    const type = roll < 0.52 ? "potion" : roll < 0.74 ? "gold" : roll < 0.91 ? equipmentType : keyTypeForDepth(z, rng);
     const id = `i|${z}|${cx},${cy}|${i}`;
     const amount = type === "gold" ? randInt(rng, 4, 22) + clamp(z, 0, 30) : 1;
     // Small chance this item is actually a chest (locked or unlocked)
@@ -940,6 +1322,13 @@ function resolveContextAction(state, occupancy = null) {
   const occ = occupancy ?? buildOccupancy(state);
   const itemId = occ.items.get(keyXYZ(p.x, p.y, p.z));
   if (itemId) {
+    const ent = state.entities.get(itemId);
+    if (ent?.type === "shopkeeper") {
+      return { type: "shop", label: "Shop", run: () => interactShopkeeper(state) };
+    }
+    if (ent?.type === "shrine") {
+      return { type: "shrine", label: "Pray", run: () => interactShrine(state) };
+    }
     return { type: "pickup", label: "Pick Up", run: () => pickup(state) };
   }
 
@@ -1021,15 +1410,17 @@ function xpExplorationBonus(roomCount, corridorCount) {
 
 function recalcDerivedStats(state) {
   const p = state.player;
+  const equip = p.equip ?? {};
   const weapon = p.equip.weapon ? WEAPONS[p.equip.weapon] : null;
-  const armor = p.equip.armor ? ARMORS[p.equip.armor] : null;
+  const chestArmor = equip.chest ? ARMOR_PIECES[equip.chest] : null;
+  const legsArmor = equip.legs ? ARMOR_PIECES[equip.legs] : null;
 
   const effAtk = state.player.effects
     .filter(e => e.type === "bless" || e.type === "curse")
     .reduce((s, e) => s + e.atkDelta, 0);
 
   p.atkBonus = (weapon?.atkBonus ?? 0) + effAtk;
-  p.defBonus = (armor?.defBonus ?? 0);
+  p.defBonus = (chestArmor?.defBonus ?? 0) + (legsArmor?.defBonus ?? 0);
 
   p.atkLo = 200 + Math.floor((p.level - 1) / 2) * 100;
   p.atkHi = 500 + Math.floor((p.level - 1) / 2) * 100;
@@ -1037,10 +1428,12 @@ function recalcDerivedStats(state) {
 
 function renderEquipment(state) {
   const p = state.player;
-  const w = p.equip.weapon ? (ITEM_TYPES[p.equip.weapon]?.name ?? p.equip.weapon) : "(none)";
-  const a = p.equip.armor ? (ITEM_TYPES[p.equip.armor]?.name ?? p.equip.armor) : "(none)";
+  const equip = p.equip ?? {};
+  const w = equip.weapon ? (ITEM_TYPES[equip.weapon]?.name ?? equip.weapon) : "(none)";
+  const chest = equip.chest ? (ITEM_TYPES[equip.chest]?.name ?? equip.chest) : "(none)";
+  const legs = equip.legs ? (ITEM_TYPES[equip.legs]?.name ?? equip.legs) : "(none)";
   equipTextEl.textContent =
-    `Weapon: ${w}\nArmor:  ${a}\nATK bonus: ${p.atkBonus >= 0 ? "+" : ""}${p.atkBonus}  DEF: +${p.defBonus}`;
+    `Weapon: ${w}\nChest:  ${chest}\nLegs:   ${legs}\nATK bonus: ${p.atkBonus >= 0 ? "+" : ""}${p.atkBonus}  DEF: +${p.defBonus}`;
 }
 
 function renderEffects(state) {
@@ -1167,6 +1560,7 @@ function respawnAtStart(state) {
 
   if (!state.world.isPassable(p.x, p.y, p.z)) state.world.setTile(p.x, p.y, p.z, FLOOR);
   ensureSurfaceLinkTile(state);
+  ensureShopState(state);
   hydrateNearby(state);
   pushLog(state, "You awaken at the dungeon entrance.");
   renderInventory(state);
@@ -1198,7 +1592,7 @@ function makeNewGame(seedStr = randomSeedString()) {
     atkBonus: 0,
     defBonus: 0,
     gold: 0,
-    equip: { weapon: null, armor: null },
+    equip: { weapon: null, chest: null, legs: null },
     effects: [],
   };
 
@@ -1218,6 +1612,7 @@ function makeNewGame(seedStr = randomSeedString()) {
     exploredChunks: new Set(),
     surfaceLink: null,
     startSpawn: null,
+    shop: null,
   };
   const start = computeInitialDepth0Spawn(world);
   state.startSpawn = start;
@@ -1226,6 +1621,7 @@ function makeNewGame(seedStr = randomSeedString()) {
   player.z = start.z;
   placeInitialSurfaceStairs(state);
   ensureSurfaceLinkTile(state);
+  ensureShopState(state);
 
   recalcDerivedStats(state);
   pushLog(state, "You enter the dungeon...");
@@ -1287,6 +1683,21 @@ function hydrateChunkEntities(state, z, cx, cy) {
       locked: it.locked,
       keyType: it.keyType,
     });
+  }
+
+  if (z === SURFACE_LEVEL && cx === 0 && cy === 0) {
+    const id = "shopkeeper|surface|0,0";
+    if (!state.removedIds.has(id) && !state.entities.has(id)) {
+      state.world.setTile(1, 0, z, FLOOR);
+      state.entities.set(id, {
+        id,
+        origin: "base",
+        kind: "item",
+        type: "shopkeeper",
+        amount: 1,
+        x: 1, y: 0, z,
+      });
+    }
   }
 }
 
@@ -1579,11 +1990,11 @@ function dropEquipmentFromChest(state) {
   const roll = Math.random();
 
   if (roll < 0.33) {
-    const w = z <= 4 ? "weapon_dagger" : z <= 9 ? "weapon_sword" : "weapon_axe";
+    const w = weaponForDepth(z, Math.random);
     invAdd(state, w, 1);
     pushLog(state, `Found a ${ITEM_TYPES[w].name}!`);
   } else if (roll < 0.60) {
-    const a = z <= 4 ? "armor_leather" : z <= 9 ? "armor_chain" : "armor_plate";
+    const a = armorForDepth(z);
     invAdd(state, a, 1);
     pushLog(state, `Found ${ITEM_TYPES[a].name}!`);
   } else if (roll < 0.80) {
@@ -1637,7 +2048,7 @@ function playerAttack(state, monster) {
       }
       placeMatchingLockedDoorNearPlayer(state, key);
     } else if (monster.type === "skeleton" && Math.random() < 0.20) {
-      const drop = Math.random() < 0.5 ? "weapon_sword" : "armor_chain";
+      const drop = Math.random() < 0.5 ? weaponForDepth(state.player.z, Math.random) : armorForDepth(state.player.z);
       spawnDynamicItem(state, drop, 1, monster.x, monster.y, monster.z);
       pushLog(state, `It dropped ${ITEM_TYPES[drop].name}!`);
     } else if (Math.random() < 0.30) {
@@ -1724,10 +2135,7 @@ function pickup(state) {
     } else {
       pushLog(state, "This key doesn't seem to fit anything nearby.");
     }
-  } else if (
-    it.type === "weapon_dagger" || it.type === "weapon_sword" || it.type === "weapon_axe" ||
-    it.type === "armor_leather" || it.type === "armor_chain" || it.type === "armor_plate"
-  ) {
+  } else if (it.type.startsWith("weapon_") || it.type.startsWith("armor_")) {
     invAdd(state, it.type, 1);
     pushLog(state, `Picked up ${ITEM_TYPES[it.type].name}.`);
   } else if (it.type === "chest") {
@@ -1745,6 +2153,9 @@ function pickup(state) {
     dropEquipmentFromChest(state);
   } else if (it.type === "shrine") {
     pushLog(state, "A Shrine hums with power. Press E to interact.");
+    return false;
+  } else if (it.type === "shopkeeper") {
+    pushLog(state, "The shopkeeper greets you. Press E to trade.");
     return false;
   } else {
     pushLog(state, `Picked up ${it.type}.`);
@@ -1810,8 +2221,14 @@ function useInventoryIndex(state, idx) {
   }
 
   if (it.type.startsWith("armor_")) {
-    const prev = p.equip.armor;
-    p.equip.armor = it.type;
+    const piece = ARMOR_PIECES[it.type];
+    if (!piece) {
+      pushLog(state, "That armor can't be equipped.");
+      return;
+    }
+    const slot = piece.slot;
+    const prev = p.equip[slot] ?? null;
+    p.equip[slot] = it.type;
     if (isStackable(it.type)) {
       it.amount -= 1;
       if (it.amount <= 0) state.inv.splice(idx, 1);
@@ -1819,7 +2236,7 @@ function useInventoryIndex(state, idx) {
       state.inv.splice(idx, 1);
     }
     if (prev) invAdd(state, prev, 1);
-    pushLog(state, `Equipped ${ITEM_TYPES[p.equip.armor].name}.`);
+    pushLog(state, `Equipped ${ITEM_TYPES[p.equip[slot]].name}.`);
     recalcDerivedStats(state);
     renderInventory(state);
     renderEquipment(state);
@@ -1854,6 +2271,23 @@ function dropInventoryIndex(state, idx) {
   pushLog(state, `Dropped ${ITEM_TYPES[dropType]?.name ?? dropType}.`);
   renderInventory(state);
   return true;
+}
+
+function interactShopkeeper(state) {
+  const p = state.player;
+  if (p.dead) return null;
+
+  const { items } = buildOccupancy(state);
+  const id = items.get(keyXYZ(p.x, p.y, p.z));
+  if (!id) return null;
+
+  const it = state.entities.get(id);
+  if (!it || it.type !== "shopkeeper") return null;
+
+  const refreshed = refreshShopStock(state, false);
+  if (refreshed) pushLog(state, "The shopkeeper restocked new wares.");
+  openShopOverlay(state, "buy");
+  return false;
 }
 
 // ---------- Shrine interaction ----------
@@ -2006,7 +2440,7 @@ function tryUseStairs(state, dir) {
   }
 }
 
-// Contextual interact: stairs first, then shrine
+// Contextual interact: stairs first, then shop/shrine
 function interactContext(state) {
   const p = state.player;
   if (p.dead) return false;
@@ -2015,6 +2449,8 @@ function interactContext(state) {
   if (here === STAIRS_DOWN) return tryUseStairs(state, "down");
   if (here === STAIRS_UP) return tryUseStairs(state, "up");
 
+  const shopResult = interactShopkeeper(state);
+  if (shopResult !== null) return shopResult;
   return interactShrine(state);
 }
 
@@ -2330,6 +2766,7 @@ function itemGlyph(type) {
   if (type === "key_red") return { g: "k", c: "#ff6b6b" };
   if (type === "key_blue") return { g: "k", c: "#6bb8ff" };
   if (type === "key_green") return { g: "k", c: "#7dff6b" };
+  if (type === "shopkeeper") return { g: "@", c: "#ffd166" };
   if (type === "chest") return { g: "▣", c: "#ffd700" };
   if (type === "shrine") return { g: "✦", c: "#b8f2e6" };
   if (type?.startsWith("weapon_")) return { g: "†", c: "#cfcfcf" };
@@ -2348,6 +2785,7 @@ function monsterGlyph(type) {
 function draw(state) {
   computeVisibility(state);
   hydrateNearby(state);
+  refreshShopStock(state, false);
 
   const { world, player, seen, visible } = state;
   const { monsters, items } = buildOccupancy(state);
@@ -2530,6 +2968,8 @@ function draw(state) {
 
   drawMinimap(state);
   updateDeathOverlay(state);
+  if (state.player.dead && isShopOverlayOpen()) closeShopOverlay();
+  if (shopUi.open) renderShopOverlay(state);
 }
 
 // ---------- Turn handling ----------
@@ -2573,6 +3013,11 @@ function confirmHardReset() {
 // ---------- Input ----------
 function onKey(state, e) {
   const k = e.key.toLowerCase();
+  if (isShopOverlayOpen()) {
+    e.preventDefault();
+    if (k === "escape") closeShopOverlay();
+    return;
+  }
   const digitShiftDrop = /^Digit[1-9]$/.test(e.code) && e.shiftKey;
 
   if (digitShiftDrop) {
@@ -2602,7 +3047,7 @@ function onKey(state, e) {
     }
   }
 
-  // E is now contextual: stairs (up/down) OR shrine interaction
+  // E is now contextual: stairs (up/down) OR shop/shrine interaction
   else if (k === "e") { e.preventDefault(); takeTurn(state, interactContext(state)); }
 
   else if (k === "i") { e.preventDefault(); renderInventory(state); }
@@ -2746,7 +3191,7 @@ function exportSave(state) {
   const exploredChunks = Array.from(state.exploredChunks ?? []);
 
   const payload = {
-    v: 6,
+    v: 7,
     seed: state.world.seedStr,
     fog: fogEnabled,
     minimap: minimapEnabled,
@@ -2763,9 +3208,53 @@ function exportSave(state) {
     exploredChunks,
     surfaceLink: state.surfaceLink ?? null,
     startSpawn: state.startSpawn ?? null,
+    shop: state.shop ?? null,
   };
 
   return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+}
+
+function normalizeInventoryEntries(items) {
+  const out = [];
+  for (const raw of items ?? []) {
+    if (!raw || typeof raw !== "object") continue;
+    const type = normalizeItemType(raw.type);
+    if (!ITEM_TYPES[type]) continue;
+    const amount = Math.max(1, Math.floor(raw.amount ?? 1));
+    out.push({ type, amount });
+  }
+  return out;
+}
+
+function normalizeDynamicEntries(items) {
+  const out = [];
+  for (const raw of items ?? []) {
+    if (!raw || typeof raw !== "object") continue;
+    const type = normalizeItemType(raw.type);
+    if (!ITEM_TYPES[type]) continue;
+    out.push({ ...raw, type, amount: Math.max(1, Math.floor(raw.amount ?? 1)) });
+  }
+  return out;
+}
+
+function normalizeEquip(equip) {
+  const out = { weapon: null, chest: null, legs: null };
+  const e = equip ?? {};
+
+  const weapon = normalizeItemType(e.weapon ?? null);
+  if (weapon && WEAPONS[weapon]) out.weapon = weapon;
+
+  const candidates = [e.chest, e.legs, e.armor]
+    .map((x) => normalizeItemType(x))
+    .filter(Boolean);
+
+  for (const type of candidates) {
+    const piece = ARMOR_PIECES[type];
+    if (!piece) continue;
+    if (!out[piece.slot]) out[piece.slot] = type;
+  }
+
+  return out;
 }
 
 function migrateV3toV4(payload) {
@@ -2839,6 +3328,16 @@ function migrateV5toV6(payload) {
   return payload;
 }
 
+function migrateV6toV7(payload) {
+  payload.player = payload.player ?? {};
+  payload.player.equip = normalizeEquip(payload.player.equip ?? {});
+  payload.inv = normalizeInventoryEntries(payload.inv ?? []);
+  payload.dynamic = normalizeDynamicEntries(payload.dynamic ?? []);
+  payload.shop = payload.shop ?? null;
+  payload.v = 7;
+  return payload;
+}
+
 function importSave(saveStr) {
   try {
     const json = decodeURIComponent(escape(atob(saveStr)));
@@ -2848,7 +3347,8 @@ function importSave(saveStr) {
     if (payload.v === 3) payload = migrateV3toV4(payload);
     if (payload.v === 4) payload = migrateV4toV5(payload);
     if (payload.v === 5) payload = migrateV5toV6(payload);
-    if (payload.v !== 6) return null;
+    if (payload.v === 6) payload = migrateV6toV7(payload);
+    if (payload.v !== 7) return null;
 
     const tileOverrides = new Map(payload.tileOv ?? []);
     const world = new World(payload.seed, tileOverrides);
@@ -2862,30 +3362,41 @@ function importSave(saveStr) {
       entities: new Map(),
       removedIds: new Set(payload.removed ?? []),
       entityOverrides: new Map(payload.entOv ?? []),
-      inv: payload.inv ?? [],
+      inv: normalizeInventoryEntries(payload.inv ?? []),
       dynamic: new Map(),
       turn: payload.turn ?? 0,
       visitedDoors: new Set(payload.visitedDoors ?? []),
       exploredChunks: new Set(payload.exploredChunks ?? []),
       surfaceLink: payload.surfaceLink ?? null,
       startSpawn: payload.startSpawn ?? null,
+      shop: payload.shop ?? null,
     };
 
     fogEnabled = !!payload.fog;
     minimapEnabled = payload.minimap !== false;
 
-    for (const e of payload.dynamic ?? []) state.dynamic.set(e.id, e);
+    for (const e of normalizeDynamicEntries(payload.dynamic ?? [])) state.dynamic.set(e.id, e);
 
     state.player.dead = !!state.player.dead;
     state.player.level = state.player.level ?? 1;
     state.player.xp = Math.max(0, Math.floor(state.player.xp ?? 0));
-    state.player.equip = state.player.equip ?? { weapon: null, armor: null };
+    state.player.equip = normalizeEquip(state.player.equip ?? {});
     state.player.effects = state.player.effects ?? [];
     state.player.maxHp = state.player.maxHp ?? 1800;
     state.player.hp = clamp(state.player.hp ?? 1800, 0, state.player.maxHp);
     state.surfaceLink = resolveSurfaceLink(state);
     state.startSpawn = state.startSpawn ?? computeInitialDepth0Spawn(world);
     ensureSurfaceLinkTile(state);
+    if (state.shop && Array.isArray(state.shop.stock)) {
+      state.shop.stock = state.shop.stock
+        .map((s) => ({ type: normalizeItemType(s?.type), price: Math.max(1, Math.floor(s?.price ?? 0)) }))
+        .filter((s) => ITEM_TYPES[s.type]);
+      state.shop.lastRefreshMs = Number.isFinite(state.shop.lastRefreshMs) ? state.shop.lastRefreshMs : Date.now();
+      state.shop.nextRefreshMs = Number.isFinite(state.shop.nextRefreshMs) ? state.shop.nextRefreshMs : Date.now();
+    } else {
+      state.shop = null;
+    }
+    ensureShopState(state);
 
     recalcDerivedStats(state);
 
@@ -2925,6 +3436,7 @@ function loadSaveOrNew() {
 document.getElementById("btnNew").addEventListener("click", () => {
   // "New Seed" (new run w/ new seed) — confirm
   if (!confirmNewRun()) return;
+  closeShopOverlay();
   game = makeNewGame();
   saveNow(game);
 });
@@ -2938,6 +3450,7 @@ document.getElementById("btnReset").addEventListener("click", () => {
   // Hard Reset — confirm
   if (!confirmHardReset()) return;
   localStorage.removeItem(SAVE_KEY);
+  closeShopOverlay();
   game = makeNewGame();
   saveNow(game);
 });
@@ -2953,10 +3466,27 @@ document.getElementById("btnImport").addEventListener("click", () => {
   if (!str) return;
   const loaded = importSave(str);
   if (!loaded) return alert("Invalid save.");
+  closeShopOverlay();
   game = loaded;
   updateContextActionButton(game);
   updateDeathOverlay(game);
   saveNow(game);
+});
+shopCloseBtnEl?.addEventListener("click", () => {
+  closeShopOverlay();
+});
+shopTabBuyEl?.addEventListener("click", () => {
+  if (!game) return;
+  shopUi.mode = "buy";
+  renderShopOverlay(game);
+});
+shopTabSellEl?.addEventListener("click", () => {
+  if (!game) return;
+  shopUi.mode = "sell";
+  renderShopOverlay(game);
+});
+shopOverlayEl?.addEventListener("click", (e) => {
+  if (e.target === shopOverlayEl) closeShopOverlay();
 });
 contextActionBtn?.addEventListener("click", () => {
   if (!game) return;
@@ -2966,10 +3496,12 @@ contextActionBtn?.addEventListener("click", () => {
 });
 btnRespawnEl?.addEventListener("click", () => {
   if (!game || !game.player?.dead) return;
+  closeShopOverlay();
   respawnAtStart(game);
 });
 btnNewDungeonEl?.addEventListener("click", () => {
   if (!confirmNewDungeonFromDeath()) return;
+  closeShopOverlay();
   game = makeNewGame();
   saveNow(game);
 });

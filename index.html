@@ -182,6 +182,126 @@
       #deathOverlay.show {
         display: flex;
       }
+      #shopOverlay {
+        position: fixed;
+        inset: 0;
+        z-index: 1700;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.65);
+        padding: 12px;
+      }
+      #shopOverlay.show {
+        display: flex;
+      }
+      #shopCard {
+        width: min(980px, 96vw);
+        height: min(760px, 92vh);
+        border: 1px solid #2a3450;
+        border-radius: 12px;
+        background: rgba(7, 11, 18, 0.98);
+        box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+        display: grid;
+        grid-template-rows: auto auto 1fr auto;
+        overflow: hidden;
+      }
+      #shopHeader {
+        padding: 12px 14px 8px 14px;
+        border-bottom: 1px solid #27314a;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      #shopTitle {
+        margin: 0;
+        font-size: 19px;
+        font-weight: 800;
+      }
+      #shopCloseBtn {
+        min-width: 84px;
+      }
+      #shopMeta {
+        padding: 8px 14px;
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        font-size: 13px;
+        border-bottom: 1px solid #1f2a40;
+      }
+      #shopTabs {
+        padding: 8px 14px;
+        display: flex;
+        gap: 8px;
+        border-bottom: 1px solid #1f2a40;
+      }
+      .shopTab {
+        min-width: 120px;
+      }
+      .shopTab.active {
+        background: #25406f;
+        border-color: #3f68a3;
+      }
+      #shopBody {
+        min-height: 0;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        padding: 10px 14px;
+      }
+      .shopListWrap {
+        border: 1px solid #24304a;
+        border-radius: 10px;
+        overflow: auto;
+        padding: 6px;
+      }
+      .shopItemBtn {
+        width: 100%;
+        text-align: left;
+        padding: 8px 10px;
+        border-radius: 8px;
+        margin-bottom: 6px;
+        background: #101828;
+        border: 1px solid #23314d;
+      }
+      .shopItemBtn:last-child {
+        margin-bottom: 0;
+      }
+      .shopItemBtn.active {
+        background: #223554;
+        border-color: #4f79b7;
+      }
+      #shopDetail {
+        border: 1px solid #24304a;
+        border-radius: 10px;
+        padding: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      #shopDetailTitle {
+        font-size: 16px;
+        font-weight: 700;
+      }
+      #shopDetailBody {
+        white-space: pre-wrap;
+        font-size: 13px;
+        opacity: 0.95;
+      }
+      #shopActionBtn {
+        margin-top: auto;
+      }
+      #shopFooter {
+        padding: 8px 14px 12px 14px;
+        border-top: 1px solid #1f2a40;
+        font-size: 12px;
+        opacity: 0.86;
+      }
+      @media (max-width: 780px) {
+        #shopBody {
+          grid-template-columns: 1fr;
+        }
+      }
       #deathCard {
         min-width: min(92vw, 440px);
         max-width: min(92vw, 520px);
@@ -502,6 +622,31 @@
             Interact shrine/take stairs: <code>E</code> · Toggle minimap: <code>M</code> · New run: <code>R</code>
           </div>
         </div>
+      </div>
+    </div>
+    <div id="shopOverlay" aria-hidden="true">
+      <div id="shopCard">
+        <div id="shopHeader">
+          <h2 id="shopTitle">Shopkeeper</h2>
+          <button id="shopCloseBtn" type="button">Close</button>
+        </div>
+        <div id="shopMeta">
+          <div id="shopGold">Gold: 0</div>
+          <div id="shopRefresh">Refresh in --:--</div>
+        </div>
+        <div id="shopTabs">
+          <button id="shopTabBuy" class="shopTab active" type="button">Buy</button>
+          <button id="shopTabSell" class="shopTab" type="button">Sell</button>
+        </div>
+        <div id="shopBody">
+          <div id="shopList" class="shopListWrap"></div>
+          <div id="shopDetail">
+            <div id="shopDetailTitle">Select an item</div>
+            <div id="shopDetailBody">Tap an item to view details.</div>
+            <button id="shopActionBtn" type="button" disabled>Choose</button>
+          </div>
+        </div>
+        <div id="shopFooter">Buy and sell with tap-friendly controls. Sell value is 25% of listed item value.</div>
       </div>
     </div>
 
