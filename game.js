@@ -41,6 +41,8 @@ const ctx = canvas.getContext("2d");
 const metaEl = document.getElementById("meta");
 const logEl = document.getElementById("log");
 const contextActionBtn = document.getElementById("contextActionBtn");
+const contextPotionBtn = document.getElementById("contextPotionBtn");
+const contextAttackListEl = document.getElementById("contextAttackList");
 const depthDisplayEl = document.getElementById("depthDisplay");
 const invListEl = document.getElementById("invList");
 const equipTextEl = document.getElementById("equipText");
@@ -82,6 +84,7 @@ mini.height = (MINI_RADIUS * 2 + 1) * MINI_SCALE;
 let fogEnabled = true;
 let minimapEnabled = true;
 const shopUi = { open: false, mode: "buy", selectedBuy: 0, selectedSell: 0 };
+let contextAuxSignature = "";
 
 // ---------- RNG (deterministic base gen) ----------
 function xmur3(str) {
@@ -1355,7 +1358,7 @@ function resolveContextAction(state, occupancy = null) {
   const attackTarget = getAdjacentMonsterTarget(state, occ);
   if (attackTarget) {
     const nm = MONSTER_TYPES[attackTarget.type]?.name ?? attackTarget.type;
-    return { type: "attack", label: `Attack ${nm}`, run: () => attackAdjacentMonster(state, occ) };
+    return { type: "attack", targetMonsterId: attackTarget.id, label: `Attack ${nm}`, run: () => attackMonsterById(state, attackTarget.id) };
   }
   const itemsHere = getItemsAt(state, p.x, p.y, p.z);
   if (itemsHere.length) {
@@ -1392,24 +1395,51 @@ function resolveContextAction(state, occupancy = null) {
 }
 
 function getAdjacentMonsterTarget(state, occupancy = null) {
+  const list = getAdjacentMonsters(state, occupancy);
+  return list.length ? list[0].monster : null;
+}
+
+function getAdjacentMonsters(state, occupancy = null) {
   const p = state.player;
   const occ = occupancy ?? buildOccupancy(state);
-  const dirs = [[0, -1], [1, 0], [0, 1], [-1, 0]];
-  for (const [dx, dy] of dirs) {
-    const x = p.x + dx;
-    const y = p.y + dy;
+  const dirs = [
+    { dx: 0, dy: -1, dir: "N" },
+    { dx: 1, dy: 0, dir: "E" },
+    { dx: 0, dy: 1, dir: "S" },
+    { dx: -1, dy: 0, dir: "W" },
+  ];
+  const out = [];
+  for (const d of dirs) {
+    const x = p.x + d.dx;
+    const y = p.y + d.dy;
     const id = occ.monsters.get(keyXYZ(x, y, p.z));
     if (!id) continue;
     const m = state.entities.get(id);
-    if (m?.kind === "monster") return m;
+    if (!m || m.kind !== "monster") continue;
+    out.push({ monster: m, dir: d.dir });
   }
-  return null;
+  return out;
 }
 
 function attackAdjacentMonster(state, occupancy = null) {
   const m = getAdjacentMonsterTarget(state, occupancy);
   if (!m) {
     pushLog(state, "No adjacent monster to attack.");
+    return false;
+  }
+  playerAttack(state, m);
+  return true;
+}
+
+function attackMonsterById(state, monsterId) {
+  const m = state.entities.get(monsterId);
+  if (!m || m.kind !== "monster" || m.z !== state.player.z) {
+    pushLog(state, "That enemy is no longer in range.");
+    return false;
+  }
+  const dist = Math.abs(m.x - state.player.x) + Math.abs(m.y - state.player.y);
+  if (dist !== 1) {
+    pushLog(state, "That enemy is no longer adjacent.");
     return false;
   }
   playerAttack(state, m);
@@ -1423,11 +1453,147 @@ function updateContextActionButton(state, occupancy = null) {
     contextActionBtn.disabled = true;
     contextActionBtn.textContent = "No Action";
     contextActionBtn.dataset.actionType = "none";
+    updatePotionContextButton(state);
+    updateAttackContextButtons(state, occupancy, null);
     return;
   }
   contextActionBtn.disabled = false;
   contextActionBtn.textContent = action.label;
   contextActionBtn.dataset.actionType = action.type;
+
+  updatePotionContextButton(state);
+  updateAttackContextButtons(state, occupancy, action);
+}
+
+function findPotionInventoryIndex(state) {
+  return state.inv.findIndex((x) => x.type === "potion" && (x.amount ?? 0) > 0);
+}
+
+function shouldShowPotionContext(state) {
+  const p = state.player;
+  if (p.dead) return false;
+  const maxHp = Math.max(1, p.maxHp || 1);
+  if (p.hp > Math.floor(maxHp * 0.15)) return false;
+  return findPotionInventoryIndex(state) >= 0;
+}
+
+function usePotionFromContext(state) {
+  const idx = findPotionInventoryIndex(state);
+  if (idx < 0) {
+    pushLog(state, "No potion available.");
+    return false;
+  }
+  useInventoryIndex(state, idx);
+  return false;
+}
+
+function updatePotionContextButton(state) {
+  if (!contextPotionBtn) return;
+  if (!shouldShowPotionContext(state)) {
+    contextPotionBtn.style.display = "none";
+    contextPotionBtn.disabled = true;
+    return;
+  }
+  contextPotionBtn.style.display = "";
+  contextPotionBtn.disabled = false;
+}
+
+function buildAuxContextActions(state, occupancy = null, primaryAction = null) {
+  const p = state.player;
+  const occ = occupancy ?? buildOccupancy(state);
+  const actions = [];
+
+  const here = state.world.getTile(p.x, p.y, p.z);
+  if (here === STAIRS_DOWN && primaryAction?.type !== "stairs-down") {
+    actions.push({
+      id: "aux|stairs-down",
+      label: "Descend Stairs",
+      run: () => tryUseStairs(state, "down"),
+    });
+  }
+  if (here === STAIRS_UP && primaryAction?.type !== "stairs-up") {
+    actions.push({
+      id: "aux|stairs-up",
+      label: "Ascend Stairs",
+      run: () => tryUseStairs(state, "up"),
+    });
+  }
+
+  const adjacent = getAdjacentMonsters(state, occ);
+  for (const entry of adjacent) {
+    const id = entry.monster.id;
+    if (primaryAction?.type === "attack" && primaryAction?.targetMonsterId === id) continue;
+    const nm = MONSTER_TYPES[entry.monster.type]?.name ?? entry.monster.type;
+    actions.push({
+      id: `aux|attack|${id}`,
+      label: `Attack ${nm} (${entry.dir})`,
+      run: () => attackMonsterById(state, id),
+    });
+  }
+
+  const itemsHere = getItemsAt(state, p.x, p.y, p.z);
+  if (itemsHere.length) {
+    const shop = itemsHere.find((e) => e.type === "shopkeeper");
+    if (shop && primaryAction?.type !== "shop") {
+      actions.push({
+        id: "aux|shop",
+        label: "Open Shop",
+        run: () => interactShopkeeper(state),
+      });
+    }
+
+    const takeable = itemsHere.filter((e) => isDirectlyTakeableItem(e.type));
+    if (takeable.length && primaryAction?.type !== "pickup") {
+      const target = takeable[0];
+      const nm = titleCaseLowerLabel(ITEM_TYPES[target.type]?.name ?? target.type);
+      const more = takeable.length > 1 ? ` (+${takeable.length - 1} more)` : "";
+      actions.push({
+        id: `aux|pickup|${target.type}|${takeable.length}`,
+        label: `Take ${nm}${more}`,
+        run: () => pickup(state),
+      });
+    }
+
+    const shrine = itemsHere.find((e) => e.type === "shrine");
+    if (shrine && primaryAction?.type !== "shrine") {
+      actions.push({
+        id: "aux|shrine",
+        label: "Pray at Shrine",
+        run: () => interactShrine(state),
+      });
+    }
+  }
+
+  return actions;
+}
+
+function updateAttackContextButtons(state, occupancy = null, primaryAction = null) {
+  if (!contextAttackListEl) return;
+  const actions = buildAuxContextActions(state, occupancy, primaryAction);
+  const signature = actions.map((a) => `${a.id}|${a.label}`).join("||");
+  if (signature === contextAuxSignature) return;
+  contextAuxSignature = signature;
+
+  if (!actions.length) {
+    contextAttackListEl.style.display = "none";
+    contextAttackListEl.classList.remove("grid");
+    contextAttackListEl.innerHTML = "";
+    return;
+  }
+
+  contextAttackListEl.innerHTML = "";
+  contextAttackListEl.classList.toggle("grid", actions.length > 2);
+  contextAttackListEl.style.display = actions.length > 2 ? "grid" : "flex";
+  for (const action of actions) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "contextAttackBtn";
+    btn.textContent = action.label;
+    btn.addEventListener("click", () => {
+      takeTurn(state, action.run());
+    });
+    contextAttackListEl.appendChild(btn);
+  }
 }
 
 function isStackable(type) {
@@ -3700,6 +3866,10 @@ contextActionBtn?.addEventListener("click", () => {
   const action = resolveContextAction(game);
   if (!action) return;
   takeTurn(game, action.run());
+});
+contextPotionBtn?.addEventListener("click", () => {
+  if (!game) return;
+  takeTurn(game, usePotionFromContext(game));
 });
 btnRespawnEl?.addEventListener("click", () => {
   if (!game || !game.player?.dead) return;
