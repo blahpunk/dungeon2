@@ -17,13 +17,26 @@ const WALL = "#";
 const FLOOR = ".";
 const DOOR_CLOSED = "+";  // blocks movement + LOS, bump opens (spend turn)
 const DOOR_OPEN = "/";    // passable, does NOT block LOS
+const DOOR_OPEN_RED = "r";
+const DOOR_OPEN_GREEN = "g";
+const DOOR_OPEN_BLUE = "b";
+const DOOR_OPEN_PURPLE = "p";
+const DOOR_OPEN_MAGENTA = "m";
 const LOCK_RED = "R";
 const LOCK_BLUE = "B";
 const LOCK_GREEN = "G";
+const LOCK_PURPLE = "P";
+const LOCK_MAGENTA = "M";
 const STAIRS_DOWN = ">";
 const STAIRS_UP = "<";
 const SURFACE_LEVEL = -1;
 const SURFACE_HALF_SIZE = 22;
+
+const KEY_RED = "key_red";
+const KEY_GREEN = "key_green";
+const KEY_BLUE = "key_blue";
+const KEY_PURPLE = "key_purple";
+const KEY_MAGENTA = "key_magenta";
 
 const SAVE_KEY = "infinite_dungeon_roguelike_save_v4";
 const XP_SCALE = 100;
@@ -275,6 +288,15 @@ function keyZCXCY(z, cx, cy) { return `${z}|${cx},${cy}`; }
 function keyXY(x, y) { return `${x},${y}`; }
 function inBounds(x, y) { return x >= 0 && y >= 0 && x < CHUNK && y < CHUNK; }
 
+function isOpenDoorTile(t) {
+  return t === DOOR_OPEN ||
+    t === DOOR_OPEN_RED ||
+    t === DOOR_OPEN_GREEN ||
+    t === DOOR_OPEN_BLUE ||
+    t === DOOR_OPEN_PURPLE ||
+    t === DOOR_OPEN_MAGENTA;
+}
+
 // ---------- Themes ----------
 function hueWrap(h) {
   let out = h % 360;
@@ -300,6 +322,8 @@ function themeForDepth(z) {
       lockR_V: "#8e4040", lockR_NV: "#5a2626",
       lockB_V: "#40688e", lockB_NV: "#26415a",
       lockG_V: "#3f8e55", lockG_NV: "#275a37",
+      lockP_V: "#7d4aa8", lockP_NV: "#4b2c64",
+      lockM_V: "#a83f8c", lockM_NV: "#632553",
       downV: "#7b6a3d", downNV: "#514528",
       upV: "#6c5a80", upNV: "#453a52",
       overlay: "rgba(0,0,0,0.35)",
@@ -330,6 +354,10 @@ function themeForDepth(z) {
     lockB_NV: hslColor(214, 42, 17),
     lockG_V: hslColor(132, 52, 28),
     lockG_NV: hslColor(132, 40, 16),
+    lockP_V: hslColor(276, 58, 32),
+    lockP_NV: hslColor(276, 46, 19),
+    lockM_V: hslColor(320, 62, 33),
+    lockM_NV: hslColor(320, 48, 20),
     downV: hslColor(downHue, 42, 25),
     downNV: hslColor(downHue, 34, 15),
     upV: hslColor(upHue, 38, 27),
@@ -435,13 +463,12 @@ function carveCorridor(grid, rng, x1, y1, x2, y2) {
 function tileBlocksLOS(t) {
   if (t === WALL) return true;
   if (t === DOOR_CLOSED) return true;
-  if (t === LOCK_RED || t === LOCK_BLUE || t === LOCK_GREEN) return true;
-  if (t === "*") return true; // old compat
+  if (tileIsLocked(t)) return true;
   return false;
 }
 
 function floodConnected(grid, sx, sy) {
-  const passable = (t) => t === FLOOR || t === DOOR_OPEN || t === STAIRS_DOWN || t === STAIRS_UP;
+  const passable = (t) => t === FLOOR || isOpenDoorTile(t) || t === STAIRS_DOWN || t === STAIRS_UP;
   const q = [{ x: sx, y: sy }];
   const seen = new Set([keyXY(sx, sy)]);
   while (q.length) {
@@ -459,7 +486,7 @@ function floodConnected(grid, sx, sy) {
   return seen;
 }
 function ensureChunkConnectivity(grid, rng) {
-  const passable = (t) => t === FLOOR || t === DOOR_OPEN || t === STAIRS_DOWN || t === STAIRS_UP;
+  const passable = (t) => t === FLOOR || isOpenDoorTile(t) || t === STAIRS_DOWN || t === STAIRS_UP;
   let carved = 0;
   let start = null;
   for (let y = 1; y < CHUNK - 1 && !start; y++)
@@ -489,24 +516,177 @@ function ensureChunkConnectivity(grid, rng) {
   return carved;
 }
 
-function pickLockColor(rng, z) {
-  return LOCK_RED;
-}
-
 function placeInternalDoors(grid, rng, z) {
-  const floorish = (t) => t === FLOOR || t === DOOR_OPEN || t === STAIRS_DOWN || t === STAIRS_UP;
+  const floorish = (t) => t === FLOOR || isOpenDoorTile(t) || t === STAIRS_DOWN || t === STAIRS_UP;
   for (let y = 1; y < CHUNK - 1; y++) {
     for (let x = 1; x < CHUNK - 1; x++) {
       if (grid[y][x] !== WALL) continue;
       const n = grid[y - 1][x], s = grid[y + 1][x], w = grid[y][x - 1], e = grid[y][x + 1];
       const ns = floorish(n) && floorish(s) && w === WALL && e === WALL;
       const we = floorish(w) && floorish(e) && n === WALL && s === WALL;
-      if ((ns || we) && rng() < 0.50) {
+      if ((ns || we) && rng() < 0.62) {
         // Keep base generation as regular connector doors; locks are applied via proximity conversion.
         grid[y][x] = DOOR_CLOSED;
       }
     }
   }
+}
+
+function chunkDoorAxis(grid, x, y) {
+  const n = grid[y - 1]?.[x];
+  const s = grid[y + 1]?.[x];
+  const w = grid[y]?.[x - 1];
+  const e = grid[y]?.[x + 1];
+  const ns = chunkFloorishTile(n) && chunkFloorishTile(s) && w === WALL && e === WALL;
+  if (ns) return { a: { x, y: y - 1, dx: 0, dy: -1 }, b: { x, y: y + 1, dx: 0, dy: 1 } };
+  const we = chunkFloorishTile(w) && chunkFloorishTile(e) && n === WALL && s === WALL;
+  if (we) return { a: { x: x - 1, y, dx: -1, dy: 0 }, b: { x: x + 1, y, dx: 1, dy: 0 } };
+  return null;
+}
+
+function chunkFloorishTile(t) {
+  return t === FLOOR || isOpenDoorTile(t) || t === STAIRS_DOWN || t === STAIRS_UP;
+}
+
+function chunkTopologyWalkableTile(t) {
+  return t === FLOOR || isOpenDoorTile(t) || t === DOOR_CLOSED || t === STAIRS_DOWN || t === STAIRS_UP;
+}
+
+function chunkDoorwayCandidate(grid, x, y) {
+  if (x <= 0 || y <= 0 || x >= CHUNK - 1 || y >= CHUNK - 1) return false;
+  if (grid[y][x] !== DOOR_CLOSED) return false;
+  return !!chunkDoorAxis(grid, x, y);
+}
+
+function chunkDoorIsChokepoint(grid, x, y, maxRadius = 18, maxNodes = 1500) {
+  if (!chunkDoorwayCandidate(grid, x, y)) return false;
+  const axis = chunkDoorAxis(grid, x, y);
+  if (!axis) return false;
+  const start = { x: axis.a.x, y: axis.a.y };
+  const goal = { x: axis.b.x, y: axis.b.y };
+
+  const q = [start];
+  const seen = new Set([keyXY(start.x, start.y)]);
+  let nodes = 0;
+
+  while (q.length && nodes++ < maxNodes) {
+    const cur = q.shift();
+    if (cur.x === goal.x && cur.y === goal.y) return false;
+
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = cur.x + dx;
+      const ny = cur.y + dy;
+      if (!inBounds(nx, ny)) continue;
+      if (nx === x && ny === y) continue;
+      if (Math.abs(nx - x) + Math.abs(ny - y) > maxRadius) continue;
+      if (!chunkTopologyWalkableTile(grid[ny][nx])) continue;
+      const k = keyXY(nx, ny);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      q.push({ x: nx, y: ny });
+    }
+  }
+  return true;
+}
+
+function findRewardChestCellForDoor(grid, door, usedCells) {
+  const axis = chunkDoorAxis(grid, door.x, door.y);
+  if (!axis) return null;
+
+  const center = (CHUNK - 1) / 2;
+  const sides = [axis.a, axis.b]
+    .map((s) => ({
+      ...s,
+      score: Math.abs(s.x - center) + Math.abs(s.y - center),
+    }))
+    .sort((a, b) => b.score - a.score);
+
+  const suitable = (x, y) => {
+    if (!inBounds(x, y)) return false;
+    const t = grid[y][x];
+    if (t !== FLOOR && !isOpenDoorTile(t)) return false;
+    if (t === STAIRS_DOWN || t === STAIRS_UP) return false;
+    if (usedCells.has(keyXY(x, y))) return false;
+    return true;
+  };
+
+  for (const side of sides) {
+    for (let step = 1; step <= 6; step++) {
+      const x = door.x + side.dx * step;
+      const y = door.y + side.dy * step;
+      if (!inBounds(x, y)) break;
+      const t = grid[y][x];
+      if (t === WALL || t === DOOR_CLOSED || tileIsLocked(t)) break;
+      if (suitable(x, y)) return { x, y };
+    }
+  }
+
+  for (const side of sides) {
+    for (let ry = -2; ry <= 2; ry++) {
+      for (let rx = -2; rx <= 2; rx++) {
+        const x = side.x + rx;
+        const y = side.y + ry;
+        if (Math.abs(rx) + Math.abs(ry) > 3) continue;
+        if (!suitable(x, y)) continue;
+        return { x, y };
+      }
+    }
+  }
+  return null;
+}
+
+function applyLockedDoorChokepoints(grid, rng, z) {
+  const candidates = [];
+  const center = (CHUNK - 1) / 2;
+  for (let y = 1; y < CHUNK - 1; y++) {
+    for (let x = 1; x < CHUNK - 1; x++) {
+      if (!chunkDoorwayCandidate(grid, x, y)) continue;
+      if (!chunkDoorIsChokepoint(grid, x, y)) continue;
+      const dCenter = Math.abs(x - center) + Math.abs(y - center);
+      candidates.push({ x, y, dCenter });
+    }
+  }
+  if (!candidates.length) return [];
+
+  candidates.sort((a, b) => (b.dCenter - a.dCenter) || (rng() < 0.5 ? -1 : 1));
+
+  const desiredBase = 1 + Math.floor(Math.max(0, z) / 5);
+  const desired = clamp(desiredBase + (rng() < 0.55 ? 1 : 0), 1, 6);
+  const densityCap = Math.max(1, Math.floor(candidates.length * 0.55));
+  const targetCount = Math.min(candidates.length, Math.max(1, Math.min(desired, densityCap)));
+
+  const chosen = [];
+  for (const cand of candidates) {
+    if (chosen.some((c) => Math.abs(c.x - cand.x) + Math.abs(c.y - cand.y) < 5)) continue;
+    chosen.push(cand);
+    if (chosen.length >= targetCount) break;
+  }
+  if (chosen.length < targetCount) {
+    for (const cand of candidates) {
+      if (chosen.find((c) => c.x === cand.x && c.y === cand.y)) continue;
+      chosen.push(cand);
+      if (chosen.length >= targetCount) break;
+    }
+  }
+
+  const usedChestCells = new Set();
+  const rewards = [];
+  for (const cand of chosen) {
+    const keyType = keyTypeForDepth(z, rng);
+    const lockTile = keyTypeToLockTile(keyType);
+    grid[cand.y][cand.x] = lockTile;
+
+    const chestCell = findRewardChestCellForDoor(grid, cand, usedChestCells);
+    if (!chestCell) continue;
+    usedChestCells.add(keyXY(chestCell.x, chestCell.y));
+    rewards.push({
+      keyType,
+      chestX: chestCell.x,
+      chestY: chestCell.y,
+      lootDepth: Math.max(z + 2, z + randInt(rng, 2, 5)),
+    });
+  }
+  return rewards;
 }
 
 // ---------- Special rooms ----------
@@ -767,7 +947,7 @@ function generateChunk(seedStr, z, cx, cy) {
     const tx = Math.floor(CHUNK / 2), ty = Math.floor(CHUNK / 2);
     for (let y = 2; y < CHUNK - 2; y++) for (let x = 2; x < CHUNK - 2; x++) {
       const t = grid[y][x];
-      if (t !== FLOOR && t !== DOOR_CLOSED && t !== DOOR_OPEN) continue;
+      if (t !== FLOOR && t !== DOOR_CLOSED && !isOpenDoorTile(t)) continue;
       const dx = x - tx, dy = y - ty;
       const d = dx * dx + dy * dy;
       if (d < bestD) { bestD = d; best = { x, y }; }
@@ -791,6 +971,7 @@ function generateChunk(seedStr, z, cx, cy) {
     ...tryAddTreasureRoom(seedStr, rng, z, grid, anchors),
     ...tryAddShrineRoom(seedStr, rng, z, grid, anchors),
   };
+  const lockedDoorRewards = applyLockedDoorChokepoints(grid, rng, z);
   const specialRoomCount = (specials.treasure ? 1 : 0) + (specials.shrine ? 1 : 0);
   const specialCorridorCount = specialRoomCount; // each special room uses one connector corridor
   const explore = {
@@ -798,7 +979,7 @@ function generateChunk(seedStr, z, cx, cy) {
     corridors: corridorCount + specialCorridorCount,
   };
 
-  return { z, cx, cy, grid, specials, explore };
+  return { z, cx, cy, grid, specials, explore, lockedDoorRewards };
 }
 
 // ---------- World ----------
@@ -831,7 +1012,7 @@ class World {
   }
   isPassable(x, y, z) {
     const t = this.getTile(x, y, z);
-    return t === FLOOR || t === DOOR_OPEN || t === STAIRS_DOWN || t === STAIRS_UP;
+    return t === FLOOR || isOpenDoorTile(t) || t === STAIRS_DOWN || t === STAIRS_UP;
   }
   ensureChunksAround(x, y, z, radiusTiles) {
     const minX = x - radiusTiles, maxX = x + radiusTiles;
@@ -952,8 +1133,10 @@ const ITEM_TYPES = {
   shopkeeper: { name: "Shopkeeper" },
 
   key_red: { name: "Red Key" },
-  key_blue: { name: "Blue Key" },
   key_green: { name: "Green Key" },
+  key_blue: { name: "Blue Key" },
+  key_purple: { name: "Purple Key" },
+  key_magenta: { name: "Magenta Key" },
 
   chest: { name: "Chest" },
   shrine: { name: "Shrine" },
@@ -1421,12 +1604,60 @@ function monsterTableForDepth(z) {
   return [{ id: "rogue", w: 2 }, { id: "jelly_red", w: 6 }, { id: "giant_spider", w: 5 }, { id: "skeleton", w: 5 }, { id: "archer", w: 3 }];
 }
 
-function keyTypeForDepth(z, rng) {
-  return "key_red";
+function keyWeightsForDepth(z) {
+  const d = Math.max(0, z | 0);
+  if (d <= 1) return [
+    { id: KEY_RED, w: 70 },
+    { id: KEY_GREEN, w: 20 },
+    { id: KEY_BLUE, w: 8 },
+    { id: KEY_PURPLE, w: 2 },
+    { id: KEY_MAGENTA, w: 1 },
+  ];
+  if (d <= 4) return [
+    { id: KEY_RED, w: 56 },
+    { id: KEY_GREEN, w: 24 },
+    { id: KEY_BLUE, w: 14 },
+    { id: KEY_PURPLE, w: 5 },
+    { id: KEY_MAGENTA, w: 1 },
+  ];
+  if (d <= 10) return [
+    { id: KEY_RED, w: 42 },
+    { id: KEY_GREEN, w: 25 },
+    { id: KEY_BLUE, w: 20 },
+    { id: KEY_PURPLE, w: 10 },
+    { id: KEY_MAGENTA, w: 3 },
+  ];
+  if (d <= 20) return [
+    { id: KEY_RED, w: 30 },
+    { id: KEY_GREEN, w: 24 },
+    { id: KEY_BLUE, w: 24 },
+    { id: KEY_PURPLE, w: 16 },
+    { id: KEY_MAGENTA, w: 6 },
+  ];
+  return [
+    { id: KEY_RED, w: 22 },
+    { id: KEY_GREEN, w: 22 },
+    { id: KEY_BLUE, w: 24 },
+    { id: KEY_PURPLE, w: 20 },
+    { id: KEY_MAGENTA, w: 10 },
+  ];
+}
+
+function keyTypeForDepth(z, rng = Math.random) {
+  return weightedChoice(rng, keyWeightsForDepth(z));
+}
+
+function keyRarityFactor(keyType) {
+  if (keyType === KEY_RED) return 1.0;
+  if (keyType === KEY_GREEN) return 0.78;
+  if (keyType === KEY_BLUE) return 0.58;
+  if (keyType === KEY_PURPLE) return 0.38;
+  if (keyType === KEY_MAGENTA) return 0.22;
+  return 0.5;
 }
 
 function samplePassableCellsInChunk(grid, rng, count) {
-  const passable = (t) => t === FLOOR || t === DOOR_OPEN || t === DOOR_CLOSED || t === STAIRS_DOWN || t === STAIRS_UP;
+  const passable = (t) => t === FLOOR || isOpenDoorTile(t) || t === DOOR_CLOSED || t === STAIRS_DOWN || t === STAIRS_UP;
   const cells = [];
   for (let y = 2; y < CHUNK - 2; y++)
     for (let x = 2; x < CHUNK - 2; x++)
@@ -1439,12 +1670,12 @@ function samplePassableCellsInChunk(grid, rng, count) {
 }
 
 function chunkBaseSpawns(worldSeed, chunk) {
-  const { z, cx, cy, grid, specials } = chunk;
+  const { z, cx, cy, grid, specials, lockedDoorRewards = [] } = chunk;
   if (z === SURFACE_LEVEL || chunk.surface) return { monsters: [], items: [] };
   const rng = makeRng(`${worldSeed}|spawns|z${z}|${cx},${cy}`);
   const isOpenCell = (x, y) => {
     const t = grid[y]?.[x];
-    return t === FLOOR || t === DOOR_OPEN || t === STAIRS_DOWN || t === STAIRS_UP;
+    return t === FLOOR || isOpenDoorTile(t) || t === STAIRS_DOWN || t === STAIRS_UP;
   };
   const occupiedItemCells = new Set();
   const cellKey = (x, y) => `${x},${y}`;
@@ -1498,6 +1729,40 @@ function chunkBaseSpawns(worldSeed, chunk) {
     }
     return null;
   };
+
+  // Reward chests beyond generated locked chokepoint doors.
+  for (let i = 0; i < lockedDoorRewards.length; i++) {
+    const reward = lockedDoorRewards[i];
+    const cxr = clamp(reward.chestX ?? 0, 1, CHUNK - 2);
+    const cyr = clamp(reward.chestY ?? 0, 1, CHUNK - 2);
+    if (isOpenCell(cxr, cyr) && !occupiedItemCells.has(cellKey(cxr, cyr))) {
+      pushItem({
+        id: `chest_lock_reward|${z}|${cx},${cy}|${i}`,
+        type: "chest",
+        amount: 1,
+        lx: cxr,
+        ly: cyr,
+        rewardChest: true,
+        lootDepth: Math.max(z + 1, Math.floor(reward.lootDepth ?? (z + 2))),
+        lockKeyType: reward.keyType ?? keyTypeForDepth(z, rng),
+      });
+    }
+
+    const keyType = reward.keyType ?? keyTypeForDepth(z, rng);
+    const keyChance = clamp(0.20 * keyRarityFactor(keyType) + 0.12, 0.10, 0.32);
+    if (rng() < keyChance) {
+      const near = findOpenCellNear(cxr, cyr, 10);
+      if (near) {
+        pushItem({
+          id: `key_lock_reward|${z}|${cx},${cy}|${i}`,
+          type: keyType,
+          amount: 1,
+          lx: near.x,
+          ly: near.y,
+        });
+      }
+    }
+  }
 
   for (let i = 0; i < itemCount; i++) {
     const c = cells[monsterCount + i];
@@ -1646,7 +1911,7 @@ function resolveContextAction(state, occupancy = null) {
   for (const [dx, dy] of dirs) {
     const x = p.x + dx, y = p.y + dy;
     const t = state.world.getTile(x, y, p.z);
-    if (t !== DOOR_OPEN) continue;
+    if (!isOpenDoorTile(t)) continue;
     const blocked = occ.monsters.get(keyXYZ(x, y, p.z)) || occ.items.get(keyXYZ(x, y, p.z));
     if (blocked) continue;
     return { type: "close-door", label: "Close Door", run: () => tryCloseAdjacentDoor(state) };
@@ -1948,7 +2213,7 @@ function updateAttackContextButtons(state, occupancy = null, primaryAction = nul
 
 function isStackable(type) {
   return type === "potion" ||
-    type === "key_red" || type === "key_blue" || type === "key_green" ||
+    type.startsWith("key_") ||
     type.startsWith("weapon_") || type.startsWith("armor_");
 }
 function invAdd(state, type, amount = 1) {
@@ -2221,7 +2486,7 @@ function placeInitialSurfaceStairs(state) {
   for (const [dx, dy] of dirs) {
     const x = p.x + dx, y = p.y + dy, z = p.z;
     const t = state.world.getTile(x, y, z);
-    if (t === FLOOR || t === DOOR_OPEN) {
+    if (t === FLOOR || isOpenDoorTile(t)) {
       state.world.setTile(x, y, z, STAIRS_UP);
       state.surfaceLink = { x, y, z };
       return;
@@ -2384,6 +2649,9 @@ function hydrateChunkEntities(state, z, cx, cy) {
       x: wx, y: wy, z,
       locked: it.locked,
       keyType: it.keyType,
+      rewardChest: !!it.rewardChest,
+      lootDepth: Number.isFinite(it.lootDepth) ? it.lootDepth : undefined,
+      lockKeyType: it.lockKeyType,
     });
   }
 
@@ -2514,10 +2782,12 @@ function tileToMiniColor(theme, t, visible) {
   if (t === WALL) return v ? theme.wallV : theme.wallNV;
   if (t === FLOOR) return v ? theme.floorV : theme.floorNV;
   if (t === DOOR_CLOSED) return v ? theme.doorC_V : theme.doorC_NV;
-  if (t === DOOR_OPEN) return v ? theme.doorO_V : theme.doorO_NV;
+  if (isOpenDoorTile(t)) return v ? theme.doorO_V : theme.doorO_NV;
   if (t === LOCK_RED) return v ? theme.lockR_V : theme.lockR_NV;
   if (t === LOCK_BLUE) return v ? theme.lockB_V : theme.lockB_NV;
   if (t === LOCK_GREEN) return v ? theme.lockG_V : theme.lockG_NV;
+  if (t === LOCK_PURPLE) return v ? theme.lockP_V : theme.lockP_NV;
+  if (t === LOCK_MAGENTA) return v ? theme.lockM_V : theme.lockM_NV;
   if (t === STAIRS_DOWN) return v ? theme.downV : theme.downNV;
   if (t === STAIRS_UP) return v ? theme.upV : theme.upNV;
   return null;
@@ -2727,12 +2997,23 @@ function killPlayer(state) {
 
 // ---------- Doors ----------
 function tileIsLocked(t) {
-  return t === LOCK_RED || t === LOCK_BLUE || t === LOCK_GREEN || t === "*";
+  return t === LOCK_RED || t === LOCK_GREEN || t === LOCK_BLUE || t === LOCK_PURPLE || t === LOCK_MAGENTA || t === "*";
 }
 function lockToKeyType(t) {
-  if (t === "*" || t === LOCK_RED) return "key_red";
-  if (t === LOCK_BLUE) return "key_blue";
-  return "key_green";
+  if (t === "*" || t === LOCK_RED) return KEY_RED;
+  if (t === LOCK_GREEN) return KEY_GREEN;
+  if (t === LOCK_BLUE) return KEY_BLUE;
+  if (t === LOCK_PURPLE) return KEY_PURPLE;
+  if (t === LOCK_MAGENTA) return KEY_MAGENTA;
+  return KEY_RED;
+}
+function lockToOpenDoorTile(t) {
+  if (t === LOCK_RED) return DOOR_OPEN_RED;
+  if (t === LOCK_GREEN) return DOOR_OPEN_GREEN;
+  if (t === LOCK_BLUE) return DOOR_OPEN_BLUE;
+  if (t === LOCK_PURPLE) return DOOR_OPEN_PURPLE;
+  if (t === LOCK_MAGENTA) return DOOR_OPEN_MAGENTA;
+  return DOOR_OPEN;
 }
 
 function tryUnlockDoor(state, x, y, z) {
@@ -2746,7 +3027,7 @@ function tryUnlockDoor(state, x, y, z) {
     return true;
   }
 
-  state.world.setTile(x, y, z, DOOR_OPEN);
+  state.world.setTile(x, y, z, lockToOpenDoorTile(t));
   pushLog(state, "You unlock and open the door.");
   renderInventory(state);
   return true;
@@ -2767,7 +3048,7 @@ function tryCloseAdjacentDoor(state) {
   for (const [dx, dy] of dirs) {
     const x = p.x + dx, y = p.y + dy;
     const t = state.world.getTile(x, y, p.z);
-    if (t !== DOOR_OPEN) continue;
+    if (!isOpenDoorTile(t)) continue;
 
     const { monsters, items } = buildOccupancy(state);
     const occ = monsters.get(keyXYZ(x, y, p.z)) || items.get(keyXYZ(x, y, p.z));
@@ -2789,29 +3070,62 @@ function spawnDynamicItem(state, type, amount, x, y, z) {
   state.entities.set(id, ent);
 }
 
-function dropEquipmentFromChest(state) {
+function dropEquipmentFromChest(state, chest = null) {
   const z = state.player.z;
-  const roll = Math.random();
+  const isRewardChest = !!chest?.rewardChest;
+  if (isRewardChest) {
+    const rewardDepth = Math.max(z + 1, Math.floor(chest?.lootDepth ?? (z + 2)));
+    const itemRolls = 1 + (Math.random() < 0.38 ? 1 : 0);
+    for (let i = 0; i < itemRolls; i++) {
+      const drop = Math.random() < 0.62
+        ? weaponForDepth(rewardDepth + randInt(Math.random, 0, 3), Math.random)
+        : armorForDepth(rewardDepth + randInt(Math.random, 0, 3), Math.random);
+      invAdd(state, drop, 1);
+      pushLog(state, `Reward: ${ITEM_TYPES[drop].name}.`);
+    }
 
+    if (Math.random() < 0.28) {
+      invAdd(state, "potion", 1);
+      pushLog(state, "Reward: Potion.");
+    }
+    return;
+  }
+
+  const roll = Math.random();
   if (roll < 0.33) {
     const w = weaponForDepth(z, Math.random);
     invAdd(state, w, 1);
     pushLog(state, `Found a ${ITEM_TYPES[w].name}!`);
   } else if (roll < 0.60) {
-    const a = armorForDepth(z);
+    const a = armorForDepth(z, Math.random);
     invAdd(state, a, 1);
     pushLog(state, `Found ${ITEM_TYPES[a].name}!`);
   } else if (roll < 0.80) {
     invAdd(state, "potion", 1);
     pushLog(state, "Found a Potion!");
   } else {
-    const key = "key_red";
-    // Only award a key if we can find/place a matching locked door nearby
-    if (placeMatchingLockedDoorNearPlayer(state, key)) {
-      invAdd(state, key, 1);
-      pushLog(state, `Found a ${ITEM_TYPES[key].name}!`);
-    }
+    const key = keyTypeForDepth(z, Math.random);
+    invAdd(state, key, 1);
+    pushLog(state, `Found a ${ITEM_TYPES[key].name}!`);
   }
+}
+
+function maybeDropKeyFromMonster(state, monster) {
+  const z = Math.max(0, monster?.z ?? state.player.z ?? 0);
+  let chance = 0.08 + Math.min(0.10, z * 0.002);
+  if (monster.type === "goblin") chance += 0.14;
+  else if (monster.type === "rogue") chance += 0.10;
+  else if (monster.type === "archer") chance += 0.09;
+  else if (monster.type === "jelly_red") chance += 0.08;
+  else if (monster.type === "skeleton") chance += 0.06;
+  else if (monster.type === "giant_spider") chance += 0.05;
+
+  if (Math.random() >= clamp(chance, 0.04, 0.35)) return false;
+
+  const keyType = keyTypeForDepth(z, Math.random);
+  spawnDynamicItem(state, keyType, 1, monster.x, monster.y, monster.z);
+  pushLog(state, `It dropped a ${ITEM_TYPES[keyType].name}!`);
+  return true;
 }
 
 // ---------- Player actions ----------
@@ -2838,24 +3152,17 @@ function playerAttack(state, monster) {
       state.entityOverrides.delete(monster.id);
     }
 
-    if (monster.type === "goblin" && Math.random() < 0.30) {
-      const key = "key_red";
-      if (placeMatchingLockedDoorNearPlayer(state, key)) {
-        spawnDynamicItem(state, key, 1, monster.x, monster.y, monster.z);
-        pushLog(state, "It dropped a Red Key!");
-      }
-    } else if (monster.type === "archer" && Math.random() < 0.25) {
-      const key = "key_red";
-      if (placeMatchingLockedDoorNearPlayer(state, key)) {
-        spawnDynamicItem(state, key, 1, monster.x, monster.y, monster.z);
-        pushLog(state, "It dropped a Red Key!");
-      }
-      placeMatchingLockedDoorNearPlayer(state, key);
-    } else if (monster.type === "skeleton" && Math.random() < 0.20) {
+    let droppedSpecial = false;
+    if (maybeDropKeyFromMonster(state, monster)) droppedSpecial = true;
+
+    if (monster.type === "skeleton" && Math.random() < 0.24) {
       const drop = Math.random() < 0.5 ? weaponForDepth(state.player.z, Math.random) : armorForDepth(state.player.z);
       spawnDynamicItem(state, drop, 1, monster.x, monster.y, monster.z);
       pushLog(state, `It dropped ${ITEM_TYPES[drop].name}!`);
-    } else if (Math.random() < 0.30) {
+      droppedSpecial = true;
+    }
+
+    if (!droppedSpecial && Math.random() < 0.30) {
       const amt = 2 + Math.floor(Math.random() * (10 + clamp(state.player.z, 0, 20)));
       spawnDynamicItem(state, "gold", amt, monster.x, monster.y, monster.z);
     }
@@ -2901,7 +3208,7 @@ function playerMoveOrAttack(state, dx, dy) {
   }
 
   const hereTile = state.world.getTile(nx, ny, nz);
-  if (hereTile === DOOR_OPEN) state.visitedDoors?.add(keyXYZ(nx, ny, nz));
+  if (isOpenDoorTile(hereTile)) state.visitedDoors?.add(keyXYZ(nx, ny, nz));
 
   p.x = nx; p.y = ny;
   return true;
@@ -2929,14 +3236,9 @@ function pickup(state) {
   } else if (it.type === "potion") {
     invAdd(state, "potion", it.amount ?? 1);
     pushLog(state, "Picked up a Potion.");
-  } else if (it.type === "key_red" || it.type === "key_blue" || it.type === "key_green") {
-    // Only add the key if a matching locked door exists or can be placed nearby.
-    if (placeMatchingLockedDoorNearPlayer(state, it.type)) {
-      invAdd(state, it.type, it.amount ?? 1);
-      pushLog(state, `Picked up a ${ITEM_TYPES[it.type].name}.`);
-    } else {
-      pushLog(state, "This key doesn't seem to fit anything nearby.");
-    }
+  } else if (it.type.startsWith("key_")) {
+    invAdd(state, it.type, it.amount ?? 1);
+    pushLog(state, `Picked up a ${ITEM_TYPES[it.type].name}.`);
   } else if (it.type.startsWith("weapon_") || it.type.startsWith("armor_")) {
     invAdd(state, it.type, 1);
     pushLog(state, `Picked up ${ITEM_TYPES[it.type].name}.`);
@@ -2952,7 +3254,7 @@ function pickup(state) {
     const g = 15 + Math.floor(Math.random() * (25 + clamp(p.z, 0, 25)));
     p.gold += g;
     pushLog(state, `You open the Chest. (+${g} gold)`);
-    dropEquipmentFromChest(state);
+    dropEquipmentFromChest(state, it);
   } else if (it.type === "shrine") {
     pushLog(state, "A Shrine hums with power. Press E to interact.");
     return false;
@@ -3440,6 +3742,13 @@ const SPRITE_SOURCES = {
   gold: "./client/assets/coins_full.png",
   potion: "./client/assets/potion_hp_full.png",
   door_closed: "./client/assets/door_closed_full.png",
+  door_open: "./client/assets/door_open_full.png",
+  door_red_closed: "./client/assets/door_red_closed_full.png",
+  door_red_open: "./client/assets/door_red_open_full.png",
+  door_green_closed: "./client/assets/door_green_closed_full.png",
+  door_green_open: "./client/assets/door_green_open_full.png",
+  door_blue_closed: "./client/assets/door_blue_closed_full.png",
+  door_blue_open: "./client/assets/door_blue_open_full.png",
   surface_entrance: "./client/assets/surface_entrance_full.png",
   weapon_bronze_dagger: "./client/assets/bronze_dagger_full.png",
   weapon_bronze_sword: "./client/assets/bronze_sword_full.png",
@@ -3494,6 +3803,7 @@ function itemSpriteId(ent) {
   if (ent.type === "gold") return "gold";
   if (ent.type === "potion") return "potion";
   if (ent.type === "key_red" || ent.type === "key_blue" || ent.type === "key_green") return ent.type;
+  if (ent.type.startsWith("key_")) return null;
   if (ent.type === "chest" && !ent.locked) return "chest";
   if (ent.type === "chest" && ent.locked) {
     if (ent.keyType === "key_red") return "chest_red";
@@ -3561,14 +3871,28 @@ function tileGlyph(t) {
   if (t === STAIRS_DOWN) return { g: "\u25BC", c: "#d6f5d6" };
   if (t === STAIRS_UP) return { g: "\u25B2", c: "#e8d6ff" };
   if (t === LOCK_RED) return { g: "R", c: "#ff9a9a" };
-  if (t === LOCK_BLUE) return { g: "B", c: "#9ad0ff" };
   if (t === LOCK_GREEN) return { g: "G", c: "#a6ff9a" };
+  if (t === LOCK_BLUE) return { g: "B", c: "#9ad0ff" };
+  if (t === LOCK_PURPLE) return { g: "P", c: "#d6a8ff" };
+  if (t === LOCK_MAGENTA) return { g: "M", c: "#ff79d6" };
   if (t === DOOR_CLOSED) return { g: "+", c: "#e6d3b3" };
   if (t === DOOR_OPEN) return { g: "/", c: "#b8d6ff" };
+  if (t === DOOR_OPEN_RED) return { g: "/", c: "#ff9a9a" };
+  if (t === DOOR_OPEN_GREEN) return { g: "/", c: "#a6ff9a" };
+  if (t === DOOR_OPEN_BLUE) return { g: "/", c: "#9ad0ff" };
+  if (t === DOOR_OPEN_PURPLE) return { g: "/", c: "#d6a8ff" };
+  if (t === DOOR_OPEN_MAGENTA) return { g: "/", c: "#ff79d6" };
   return null;
 }
 function tileSpriteId(state, wx, wy, wz, t) {
+  if (t === LOCK_RED) return "door_red_closed";
+  if (t === LOCK_GREEN) return "door_green_closed";
+  if (t === LOCK_BLUE) return "door_blue_closed";
   if (t === DOOR_CLOSED) return "door_closed";
+  if (t === DOOR_OPEN_RED) return "door_red_open";
+  if (t === DOOR_OPEN_GREEN) return "door_green_open";
+  if (t === DOOR_OPEN_BLUE) return "door_blue_open";
+  if (t === DOOR_OPEN) return "door_open";
   if (t === STAIRS_DOWN && wz === SURFACE_LEVEL && wx === 0 && wy === 0) return "surface_entrance";
   if (t === STAIRS_UP && wz === 0) {
     const link = state.surfaceLink ?? resolveSurfaceLink(state);
@@ -3587,9 +3911,11 @@ function itemGlyph(type) {
   // Updated colors: potions magenta, armor brown, weapons silver, chests yellow, gold gold
   if (type === "potion") return { g: "!", c: "#ff66cc" };
   if (type === "gold") return { g: "$", c: "#ffbf00" };
-  if (type === "key_red") return { g: "k", c: "#ff6b6b" };
-  if (type === "key_blue") return { g: "k", c: "#6bb8ff" };
-  if (type === "key_green") return { g: "k", c: "#7dff6b" };
+  if (type === KEY_RED) return { g: "k", c: "#ff6b6b" };
+  if (type === KEY_GREEN) return { g: "k", c: "#7dff6b" };
+  if (type === KEY_BLUE) return { g: "k", c: "#6bb8ff" };
+  if (type === KEY_PURPLE) return { g: "k", c: "#b18cff" };
+  if (type === KEY_MAGENTA) return { g: "k", c: "#ff66cc" };
   if (type === "shopkeeper") return { g: "@", c: "#ffd166" };
   if (type === "chest") return { g: "\u25A3", c: "#ffd700" };
   if (type === "shrine") return { g: "\u2726", c: "#b8f2e6" };
@@ -3692,10 +4018,12 @@ function draw(state) {
       if (t === WALL) fill = isVisible ? theme.wallV : theme.wallNV;
       if (t === FLOOR) fill = isVisible ? theme.floorV : theme.floorNV;
       if (t === DOOR_CLOSED) fill = isVisible ? theme.doorC_V : theme.doorC_NV;
-      if (t === DOOR_OPEN) fill = isVisible ? theme.doorO_V : theme.doorO_NV;
+      if (isOpenDoorTile(t)) fill = isVisible ? theme.doorO_V : theme.doorO_NV;
       if (t === LOCK_RED) fill = isVisible ? theme.lockR_V : theme.lockR_NV;
-      if (t === LOCK_BLUE) fill = isVisible ? theme.lockB_V : theme.lockB_NV;
       if (t === LOCK_GREEN) fill = isVisible ? theme.lockG_V : theme.lockG_NV;
+      if (t === LOCK_BLUE) fill = isVisible ? theme.lockB_V : theme.lockB_NV;
+      if (t === LOCK_PURPLE) fill = isVisible ? theme.lockP_V : theme.lockP_NV;
+      if (t === LOCK_MAGENTA) fill = isVisible ? theme.lockM_V : theme.lockM_NV;
       if (t === STAIRS_DOWN) fill = isVisible ? theme.downV : theme.downNV;
       if (t === STAIRS_UP) fill = isVisible ? theme.upV : theme.upNV;
 
@@ -3703,8 +4031,8 @@ function draw(state) {
       ctx.fillRect(sx * TILE, sy * TILE, TILE, TILE);
 
       // Subtle bevel shading at wall/floor boundaries to reduce blocky edges at higher tile sizes.
-      const wallish = (tt) => tt === WALL || tt === DOOR_CLOSED || tt === LOCK_RED || tt === LOCK_BLUE || tt === LOCK_GREEN || tt === "*";
-      const openish = (tt) => tt === FLOOR || tt === DOOR_OPEN || tt === STAIRS_DOWN || tt === STAIRS_UP;
+      const wallish = (tt) => tt === WALL || tt === DOOR_CLOSED || tileIsLocked(tt);
+      const openish = (tt) => tt === FLOOR || isOpenDoorTile(tt) || tt === STAIRS_DOWN || tt === STAIRS_UP;
       const n = world.getTile(wx, wy - 1, player.z);
       const s = world.getTile(wx, wy + 1, player.z);
       const w = world.getTile(wx - 1, wy, player.z);
@@ -3997,9 +4325,12 @@ function onKey(state, e) {
 
 // ---------- Keyâ†’Locked Door pairing (doorway-only replacement) ----------
 function keyTypeToLockTile(keyType) {
-  if (keyType === "key_red") return LOCK_RED;
-  if (keyType === "key_blue") return LOCK_BLUE;
-  return LOCK_GREEN;
+  if (keyType === KEY_RED) return LOCK_RED;
+  if (keyType === KEY_GREEN) return LOCK_GREEN;
+  if (keyType === KEY_BLUE) return LOCK_BLUE;
+  if (keyType === KEY_PURPLE) return LOCK_PURPLE;
+  if (keyType === KEY_MAGENTA) return LOCK_MAGENTA;
+  return LOCK_RED;
 }
 
 function isDoorwayCandidate(state, x, y, z) {
@@ -4008,7 +4339,7 @@ function isDoorwayCandidate(state, x, y, z) {
 
   if (state.visitedDoors?.has(keyXYZ(x, y, z))) return false;
 
-  const floorish = (tt) => tt === FLOOR || tt === DOOR_OPEN || tt === STAIRS_DOWN || tt === STAIRS_UP;
+  const floorish = (tt) => tt === FLOOR || isOpenDoorTile(tt) || tt === STAIRS_DOWN || tt === STAIRS_UP;
   const n = state.world.getTile(x, y - 1, z), s = state.world.getTile(x, y + 1, z);
   const w = state.world.getTile(x - 1, y, z), e = state.world.getTile(x + 1, y, z);
 
@@ -4019,7 +4350,7 @@ function isDoorwayCandidate(state, x, y, z) {
 }
 
 function topologyWalkableTile(t) {
-  return t === FLOOR || t === DOOR_OPEN || t === DOOR_CLOSED || t === STAIRS_DOWN || t === STAIRS_UP;
+  return t === FLOOR || isOpenDoorTile(t) || t === DOOR_CLOSED || t === STAIRS_DOWN || t === STAIRS_UP;
 }
 
 function isDoorChokepoint(state, x, y, z, maxRadius = 28, maxNodes = 2600) {
