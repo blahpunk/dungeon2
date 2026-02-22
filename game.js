@@ -4287,9 +4287,7 @@ function draw(state) {
   const { monsters, items } = buildOccupancy(state);
   updateContextActionButton(state, { monsters, items });
   const theme = applyVisibilityBoostToTheme(themeForDepth(player.z));
-  const deferredTileSprites = [];
-  const deferredItemSprites = [];
-  const deferredMonsterSprites = [];
+  const deferredWorldObjects = [];
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.imageSmoothingEnabled = true;
@@ -4403,12 +4401,30 @@ function draw(state) {
         if (tileSpriteKind === "surface_entrance") tileSpriteSize = SURFACE_ENTRANCE_SPRITE_SIZE;
         else if (tileSpriteKind === "stairs_up" || tileSpriteKind === "stairs_down") tileSpriteSize = STAIRS_SPRITE_SIZE;
         else if (tileSpriteKind?.startsWith("door_")) tileSpriteSize = DOOR_SPRITE_SIZE;
-        deferredTileSprites.push({ sx, sy, img: tileSprite, size: tileSpriteSize });
+        deferredWorldObjects.push({
+          kind: "tile-sprite",
+          sortY: wy,
+          sortX: wx,
+          order: -1,
+          sx,
+          sy,
+          img: tileSprite,
+          size: tileSpriteSize,
+        });
       } else {
         const tg = tileGlyph(t);
         if (tg) {
           const col = (isVisible || !fogEnabled) ? tg.c : "rgba(230,230,230,0.45)";
-          drawGlyph(ctx, sx, sy, tg.g, col);
+          deferredWorldObjects.push({
+            kind: "glyph",
+            sortY: wy,
+            sortX: wx,
+            order: -1,
+            sx,
+            sy,
+            glyph: tg.g,
+            color: col,
+          });
         }
       }
 
@@ -4423,13 +4439,44 @@ function draw(state) {
             if (ent?.type === "shopkeeper") {
               const centerX = (sx + 0.5) * TILE;
               const centerY = (sy + SHOP_FOOTPRINT_H / 2) * TILE;
-              deferredItemSprites.push({ sx, sy, img: itemSprite, size: SHOP_SPRITE_SIZE, centerX, centerY });
+              deferredWorldObjects.push({
+                kind: "item-sprite",
+                sortY: wy + (SHOP_FOOTPRINT_H - 1),
+                sortX: wx,
+                order: 0,
+                sx,
+                sy,
+                img: itemSprite,
+                size: SHOP_SPRITE_SIZE,
+                centerX,
+                centerY,
+              });
             } else {
-              deferredItemSprites.push({ sx, sy, img: itemSprite, size: ITEM_SPRITE_SIZE });
+              deferredWorldObjects.push({
+                kind: "item-sprite",
+                sortY: wy,
+                sortX: wx,
+                order: 0,
+                sx,
+                sy,
+                img: itemSprite,
+                size: ITEM_SPRITE_SIZE,
+              });
             }
           } else {
             const gi = itemGlyph(ent?.type);
-            if (gi) drawGlyph(ctx, sx, sy, gi.g, gi.c);
+            if (gi) {
+              deferredWorldObjects.push({
+                kind: "glyph",
+                sortY: wy,
+                sortX: wx,
+                order: 0,
+                sx,
+                sy,
+                glyph: gi.g,
+                color: gi.c,
+              });
+            }
           }
         }
 
@@ -4437,48 +4484,105 @@ function draw(state) {
           const ent = state.entities.get(mk);
           const monsterSprite = getSpriteIfReady(monsterSpriteId(ent?.type));
           if (monsterSprite) {
-            deferredMonsterSprites.push({ sx, sy, img: monsterSprite });
+            deferredWorldObjects.push({
+              kind: "monster-sprite",
+              sortY: wy,
+              sortX: wx,
+              order: 1,
+              sx,
+              sy,
+              img: monsterSprite,
+            });
           } else {
             const gm = monsterGlyph(ent?.type);
-            if (gm) drawGlyph(ctx, sx, sy, gm.g, gm.c);
+            if (gm) {
+              deferredWorldObjects.push({
+                kind: "glyph",
+                sortY: wy,
+                sortX: wx,
+                order: 1,
+                sx,
+                sy,
+                glyph: gm.g,
+                color: gm.c,
+              });
+            }
           }
         }
       }
     }
   }
 
-  // Draw tile sprites after terrain so wall shading/neighbor tiles cannot overpaint them.
-  for (const spr of deferredTileSprites) {
-    drawCenteredSprite(ctx, spr.sx, spr.sy, spr.img, spr.size, spr.size);
-  }
-  for (const spr of deferredItemSprites) {
-    if (Number.isFinite(spr.centerX) && Number.isFinite(spr.centerY)) {
-      drawCenteredSpriteAt(ctx, spr.centerX, spr.centerY, spr.img, spr.size ?? ITEM_SPRITE_SIZE, spr.size ?? ITEM_SPRITE_SIZE);
-    } else {
-      drawCenteredSprite(ctx, spr.sx, spr.sy, spr.img, spr.size ?? ITEM_SPRITE_SIZE, spr.size ?? ITEM_SPRITE_SIZE);
-    }
-  }
-  // Draw oversized monster sprites after terrain so neighboring tiles don't overpaint overflow.
-  for (const spr of deferredMonsterSprites) {
-    const cx = spr.sx * TILE + TILE / 2;
-    const cy = spr.sy * TILE + TILE / 2;
-    drawSoftGlow(ctx, cx, cy, MONSTER_GLOW_RADIUS, "rgba(255,120,90,0.20)", "rgba(255,120,90,0)");
-    drawCenteredSprite(ctx, spr.sx, spr.sy, spr.img, MONSTER_SPRITE_SIZE, MONSTER_SPRITE_SIZE);
-  }
-
   const heroCx = viewRadiusX * TILE + TILE / 2;
   const heroCy = viewRadiusY * TILE + TILE / 2;
-  drawSoftGlow(ctx, heroCx, heroCy, HERO_GLOW_RADIUS, "rgba(120,220,255,0.24)", "rgba(120,220,255,0)");
   const heroSprite = getSpriteIfReady("hero");
   if (heroSprite) {
-    drawCenteredSprite(ctx, viewRadiusX, viewRadiusY, heroSprite, PLAYER_SPRITE_SIZE, PLAYER_SPRITE_SIZE);
+    deferredWorldObjects.push({
+      kind: "hero-sprite",
+      sortY: player.y,
+      sortX: player.x,
+      order: 2,
+      sx: viewRadiusX,
+      sy: viewRadiusY,
+      img: heroSprite,
+    });
   } else {
-    ctx.fillStyle = "#ffffff";
-    // Fallback player marker while sprite is loading.
-    const prad = Math.max(3, TILE / 2 - 2);
-    ctx.beginPath();
-    ctx.arc(heroCx, heroCy, prad, 0, Math.PI * 2);
-    ctx.fill();
+    deferredWorldObjects.push({
+      kind: "hero-fallback",
+      sortY: player.y,
+      sortX: player.x,
+      order: 2,
+      centerX: heroCx,
+      centerY: heroCy,
+    });
+  }
+
+  // Painter's algorithm for world objects: lower tiles (higher Y) render over higher tiles.
+  deferredWorldObjects.sort((a, b) =>
+    (a.sortY - b.sortY) || (a.sortX - b.sortX) || (a.order - b.order)
+  );
+  for (const obj of deferredWorldObjects) {
+    if (obj.kind === "tile-sprite") {
+      drawCenteredSprite(ctx, obj.sx, obj.sy, obj.img, obj.size, obj.size);
+      continue;
+    }
+    if (obj.kind === "glyph") {
+      drawGlyph(ctx, obj.sx, obj.sy, obj.glyph, obj.color);
+      continue;
+    }
+    if (obj.kind === "item-sprite") {
+      if (Number.isFinite(obj.centerX) && Number.isFinite(obj.centerY)) {
+        drawCenteredSpriteAt(ctx, obj.centerX, obj.centerY, obj.img, obj.size ?? ITEM_SPRITE_SIZE, obj.size ?? ITEM_SPRITE_SIZE);
+      } else {
+        drawCenteredSprite(ctx, obj.sx, obj.sy, obj.img, obj.size ?? ITEM_SPRITE_SIZE, obj.size ?? ITEM_SPRITE_SIZE);
+      }
+      continue;
+    }
+    if (obj.kind === "monster-sprite") {
+      const cx = obj.sx * TILE + TILE / 2;
+      const cy = obj.sy * TILE + TILE / 2;
+      drawSoftGlow(ctx, cx, cy, MONSTER_GLOW_RADIUS, "rgba(255,120,90,0.20)", "rgba(255,120,90,0)");
+      drawCenteredSprite(ctx, obj.sx, obj.sy, obj.img, MONSTER_SPRITE_SIZE, MONSTER_SPRITE_SIZE);
+      continue;
+    }
+    if (obj.kind === "hero-sprite") {
+      const cx = obj.sx * TILE + TILE / 2;
+      const cy = obj.sy * TILE + TILE / 2;
+      drawSoftGlow(ctx, cx, cy, HERO_GLOW_RADIUS, "rgba(120,220,255,0.24)", "rgba(120,220,255,0)");
+      drawCenteredSprite(ctx, obj.sx, obj.sy, obj.img, PLAYER_SPRITE_SIZE, PLAYER_SPRITE_SIZE);
+      continue;
+    }
+    if (obj.kind === "hero-fallback") {
+      const cx = Number.isFinite(obj.centerX) ? obj.centerX : heroCx;
+      const cy = Number.isFinite(obj.centerY) ? obj.centerY : heroCy;
+      drawSoftGlow(ctx, cx, cy, HERO_GLOW_RADIUS, "rgba(120,220,255,0.24)", "rgba(120,220,255,0)");
+      ctx.fillStyle = "#ffffff";
+      // Fallback player marker while sprite is loading.
+      const prad = Math.max(3, TILE / 2 - 2);
+      ctx.beginPath();
+      ctx.arc(cx, cy, prad, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   const { cx, cy, lx, ly } = splitWorldToChunk(player.x, player.y);
