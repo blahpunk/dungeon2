@@ -3007,6 +3007,7 @@ const SPRITE_SOURCES = {
   armor_leather_legs: "./client/assets/leather_legs_full.png",
   weapon_iron_dagger: "./client/assets/iron_dagger_full.png",
   weapon_iron_sword: "./client/assets/iron_sword_full.png",
+  weapon_iron_axe: "./client/assets/iron_axe_full.png",
   armor_iron_chest: "./client/assets/iron_chestplate_full.png",
   armor_iron_legs: "./client/assets/iron_platelegs_full.png",
 };
@@ -3060,6 +3061,7 @@ function itemSpriteId(ent) {
   if (ent.type === "weapon_bronze_axe") return "weapon_bronze_axe";
   if (ent.type === "weapon_iron_dagger") return "weapon_iron_dagger";
   if (ent.type === "weapon_iron_sword") return "weapon_iron_sword";
+  if (ent.type === "weapon_iron_axe") return "weapon_iron_axe";
   if (ent.type === "armor_leather_chest") return "armor_leather_chest";
   if (ent.type === "armor_leather_legs") return "armor_leather_legs";
   if (ent.type === "armor_iron_chest") return "armor_iron_chest";
