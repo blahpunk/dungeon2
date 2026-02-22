@@ -93,6 +93,8 @@ const btnDebugMenuEl = document.getElementById("btnDebugMenu");
 const debugMenuEl = document.getElementById("debugMenu");
 const toggleGodmodeEl = document.getElementById("toggleGodmode");
 const toggleFreeShoppingEl = document.getElementById("toggleFreeShopping");
+const debugDepthInputEl = document.getElementById("debugDepthInput");
+const debugDepthGoEl = document.getElementById("debugDepthGo");
 const mainCanvasWrapEl = document.getElementById("mainCanvasWrap");
 const surfaceCompassEl = document.getElementById("surfaceCompass");
 const surfaceCompassArrowEl = document.getElementById("surfaceCompassArrow");
@@ -182,6 +184,7 @@ function updateDebugMenuUi(state) {
   const d = normalizeDebugFlags(state?.debug);
   if (toggleGodmodeEl) toggleGodmodeEl.checked = d.godmode;
   if (toggleFreeShoppingEl) toggleFreeShoppingEl.checked = d.freeShopping;
+  if (debugDepthInputEl) debugDepthInputEl.value = `${state?.player?.z ?? 0}`;
 }
 function setDebugFlag(state, key, enabled) {
   const d = stateDebug(state);
@@ -191,6 +194,35 @@ function setDebugFlag(state, key, enabled) {
   if (key === "godmode") pushLog(state, `Godmode ${next ? "enabled" : "disabled"}.`);
   if (key === "freeShopping") pushLog(state, `Free shopping ${next ? "enabled" : "disabled"}.`);
   saveNow(state);
+}
+function teleportPlayerToDepth(state, targetDepth) {
+  const p = state.player;
+  if (!p || p.dead) return false;
+  if (!Number.isFinite(targetDepth)) return false;
+
+  const newZ = Math.max(SURFACE_LEVEL, Math.trunc(targetDepth));
+  if (newZ === p.z) {
+    pushLog(state, `Already at depth ${newZ}.`);
+    return false;
+  }
+
+  state.world.ensureChunksAround(p.x, p.y, newZ, viewRadiusForChunks());
+  if (newZ === SURFACE_LEVEL) state.world.ensureChunksAround(0, 0, newZ, 1);
+
+  p.z = newZ;
+  if (!state.world.isPassable(p.x, p.y, p.z)) state.world.setTile(p.x, p.y, p.z, FLOOR);
+  if (newZ === 0) ensureSurfaceLinkTile(state);
+
+  hydrateNearby(state);
+  renderInventory(state);
+  renderEquipment(state);
+  renderEffects(state);
+  updateContextActionButton(state);
+  updateDeathOverlay(state);
+  updateDebugMenuUi(state);
+  pushLog(state, `Debug: teleported to depth ${newZ}.`);
+  saveNow(state);
+  return true;
 }
 
 function updateOverlaySectionUi() {
@@ -1096,6 +1128,27 @@ const METAL_TIERS = [
   { id: "deepcore_metal", name: "Deepcore Metal", color: "#8B0000", atkBonus: 2730, defBonus: 2460, unlockDepth: 118, rampDepth: 22, maxWeight: 2 },
   { id: "singularity_steel", name: "Singularity Steel", color: "#7A00CC", atkBonus: 2990, defBonus: 2700, unlockDepth: 120, rampDepth: 24, maxWeight: 1 },
 ];
+const MATERIAL_DEPTH_WINDOWS = {
+  // Early game hard cutoffs requested: wood <= 1, iron <= 4, steel <= 6.
+  wood: { minDepth: 0, peakDepth: 0, maxDepth: 1, peakWeight: 44 },
+  bronze: { minDepth: 0, peakDepth: 1, maxDepth: 3, peakWeight: 40 },
+  iron: { minDepth: 0, peakDepth: 2, maxDepth: 4, peakWeight: 46 },
+  steel: { minDepth: 2, peakDepth: 4, maxDepth: 6, peakWeight: 38 },
+  silversteel: { minDepth: 4, peakDepth: 7, maxDepth: 10, peakWeight: 30 },
+  storm_alloy: { minDepth: 6, peakDepth: 10, maxDepth: 15, peakWeight: 27 },
+  sunforged_alloy: { minDepth: 9, peakDepth: 14, maxDepth: 21, peakWeight: 23 },
+  embersteel: { minDepth: 13, peakDepth: 19, maxDepth: 28, peakWeight: 20 },
+  star_metal: { minDepth: 18, peakDepth: 26, maxDepth: 36, peakWeight: 17 },
+  nightsteel: { minDepth: 24, peakDepth: 33, maxDepth: 45, peakWeight: 15 },
+  heartstone_alloy: { minDepth: 31, peakDepth: 42, maxDepth: 56, peakWeight: 13 },
+  aether_alloy: { minDepth: 39, peakDepth: 52, maxDepth: 68, peakWeight: 12 },
+  prime_metal: { minDepth: 48, peakDepth: 63, maxDepth: 81, peakWeight: 10 },
+  nullmetal: { minDepth: 58, peakDepth: 75, maxDepth: 95, peakWeight: 8 },
+  dungeoncore_alloy: { minDepth: 70, peakDepth: 89, maxDepth: 108, peakWeight: 7 },
+  azhurite_prime: { minDepth: 82, peakDepth: 101, maxDepth: 116, peakWeight: 5 },
+  deepcore_metal: { minDepth: 93, peakDepth: 112, maxDepth: 122, peakWeight: 4 },
+  singularity_steel: { minDepth: 105, peakDepth: 126, maxDepth: Number.POSITIVE_INFINITY, peakWeight: 3 },
+};
 const MATERIAL_BY_ID = Object.fromEntries(METAL_TIERS.map((m) => [m.id, m]));
 const MATERIAL_COLOR_BY_ID = Object.fromEntries(METAL_TIERS.map((m) => [m.id, m.color]));
 const WEAPON_MATERIALS = METAL_TIERS.map((m) => m.id);
@@ -1189,63 +1242,48 @@ function weightedPick(rng, entries) {
   return entries[entries.length - 1].id;
 }
 
+function depthWindowWeight(depth, window) {
+  if (!window) return 0;
+  const min = Math.max(0, Math.floor(window.minDepth ?? 0));
+  const peak = Math.max(min, Math.floor(window.peakDepth ?? min));
+  const maxRaw = window.maxDepth ?? Number.POSITIVE_INFINITY;
+  const max = Number.isFinite(maxRaw) ? Math.max(peak, Math.floor(maxRaw)) : Number.POSITIVE_INFINITY;
+  if (depth < min || depth > max) return 0;
+
+  const peakWeight = Math.max(1, Math.floor(window.peakWeight ?? 1));
+  if (!Number.isFinite(max) || (min === peak && peak === max)) return peakWeight;
+  if (depth === peak) return peakWeight;
+
+  if (depth < peak) {
+    const denom = Math.max(1, peak - min);
+    const t = (depth - min) / denom;
+    return Math.max(1, Math.round(1 + (peakWeight - 1) * t));
+  }
+
+  if (!Number.isFinite(max)) return peakWeight;
+  const denom = Math.max(1, max - peak);
+  const t = (max - depth) / denom;
+  return Math.max(1, Math.round(1 + (peakWeight - 1) * t));
+}
+
+function fallbackMaterialForDepth(depth) {
+  if (depth <= 1) return "wood";
+  if (depth <= 3) return "bronze";
+  if (depth <= 4) return "iron";
+  if (depth <= 6) return "steel";
+  return METAL_TIERS[METAL_TIERS.length - 1].id;
+}
+
 function materialWeightsForDepth(z) {
   const depth = Math.max(0, Math.floor(z));
-  // Requested early-game mix:
-  // depth 0: wood + bronze + some iron
-  // depth 1-3: progressively more iron
-  // depth 3-4: steel starts appearing
-  if (depth === 0) return [
-    { id: "wood", w: 44 },
-    { id: "bronze", w: 36 },
-    { id: "iron", w: 20 },
-  ];
-  if (depth === 1) return [
-    { id: "wood", w: 28 },
-    { id: "bronze", w: 30 },
-    { id: "iron", w: 36 },
-    { id: "steel", w: 6 },
-  ];
-  if (depth === 2) return [
-    { id: "wood", w: 18 },
-    { id: "bronze", w: 24 },
-    { id: "iron", w: 45 },
-    { id: "steel", w: 13 },
-  ];
-  if (depth === 3) return [
-    { id: "wood", w: 12 },
-    { id: "bronze", w: 16 },
-    { id: "iron", w: 44 },
-    { id: "steel", w: 22 },
-    { id: "silversteel", w: 6 },
-  ];
-  if (depth === 4) return [
-    { id: "wood", w: 8 },
-    { id: "bronze", w: 12 },
-    { id: "iron", w: 34 },
-    { id: "steel", w: 32 },
-    { id: "silversteel", w: 14 },
-  ];
-
-  const unlocked = [];
-  for (let i = 0; i < METAL_TIERS.length; i++) {
-    const t = METAL_TIERS[i];
-    if (depth < t.unlockDepth) continue;
-    let w = 1 + Math.floor((depth - t.unlockDepth) / Math.max(1, t.rampDepth));
-    w = Math.min(t.maxWeight, w);
-    unlocked.push({ id: t.id, w, idx: i });
+  const weighted = [];
+  for (const tier of METAL_TIERS) {
+    const w = depthWindowWeight(depth, MATERIAL_DEPTH_WINDOWS[tier.id]);
+    if (w > 0) weighted.push({ id: tier.id, w });
   }
-  if (!unlocked.length) return [{ id: "wood", w: 1 }];
 
-  const highestIdx = unlocked[unlocked.length - 1].idx;
-  return unlocked.map((entry) => {
-    let w = entry.w;
-    const gap = highestIdx - entry.idx;
-    if (gap > 2) w = Math.max(1, w - (gap - 2) * 2);
-    if (entry.idx >= 12) w = Math.max(1, Math.floor(w * 0.8));
-    if (entry.idx >= 15) w = Math.max(1, Math.floor(w * 0.65));
-    return { id: entry.id, w };
-  });
+  if (weighted.length > 0) return weighted;
+  return [{ id: fallbackMaterialForDepth(depth), w: 1 }];
 }
 
 function weaponMaterialWeightsForDepth(z) {
@@ -4262,8 +4300,28 @@ function confirmHardReset() {
 }
 
 // ---------- Input ----------
+function isTextEntryElement(el) {
+  if (!(el instanceof Element)) return false;
+  if (el.closest("[contenteditable='true']")) return true;
+  const field = el.closest("input, textarea");
+  if (!field) return false;
+  const tag = field.tagName.toLowerCase();
+  if (tag === "textarea") return true;
+  const type = String(field.getAttribute("type") ?? "text").toLowerCase();
+  return !["checkbox", "radio", "button", "submit", "reset", "file", "range", "color"].includes(type);
+}
+
+function shouldIgnoreGameHotkeys(e) {
+  const target = e.target;
+  if (!(target instanceof Element)) return false;
+  if (debugMenuWrapEl?.contains(target)) return true;
+  if (isTextEntryElement(target)) return true;
+  return false;
+}
+
 function onKey(state, e) {
   const k = e.key.toLowerCase();
+  if (shouldIgnoreGameHotkeys(e)) return;
   if (isShopOverlayOpen()) {
     e.preventDefault();
     if (k === "escape") closeShopOverlay();
@@ -4775,6 +4833,30 @@ toggleFreeShoppingEl?.addEventListener("change", () => {
   setDebugFlag(game, "freeShopping", !!toggleFreeShoppingEl.checked);
   updateDebugMenuUi(game);
   if (shopUi.open) renderShopOverlay(game);
+});
+const runDebugDepthTeleport = () => {
+  if (!game || !debugDepthInputEl) return;
+  const raw = debugDepthInputEl.value.trim();
+  if (!raw.length) {
+    pushLog(game, "Enter a depth value.");
+    return;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) {
+    pushLog(game, "Invalid depth value.");
+    return;
+  }
+  teleportPlayerToDepth(game, parsed);
+};
+debugDepthGoEl?.addEventListener("click", (e) => {
+  e.preventDefault();
+  runDebugDepthTeleport();
+});
+debugDepthInputEl?.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  e.stopPropagation();
+  runDebugDepthTeleport();
 });
 shopCloseBtnEl?.addEventListener("click", () => {
   closeShopOverlay();

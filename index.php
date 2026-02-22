@@ -73,6 +73,40 @@
         height: 16px;
         accent-color: #5ca7ff;
       }
+      .debugTeleport {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid #27314a;
+        display: grid;
+        gap: 6px;
+      }
+      .debugTeleportLabel {
+        font-size: 12px;
+        opacity: 0.9;
+      }
+      .debugTeleportRow {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 8px;
+        align-items: center;
+      }
+      .debugTeleportRow input {
+        width: 100%;
+        min-width: 0;
+        height: 30px;
+        border-radius: 8px;
+        border: 1px solid #32415f;
+        background: #0a1220;
+        color: #e6e6e6;
+        padding: 4px 8px;
+        font-size: 13px;
+      }
+      .debugTeleportRow button {
+        height: 30px;
+        padding: 4px 10px;
+        border-radius: 8px;
+        font-size: 13px;
+      }
       button {
         background: #182032;
         color: #e6e6e6;
@@ -850,6 +884,13 @@
             <span>Free shopping</span>
             <input id="toggleFreeShopping" type="checkbox" />
           </label>
+          <div class="debugTeleport">
+            <label class="debugTeleportLabel" for="debugDepthInput">Teleport depth</label>
+            <div class="debugTeleportRow">
+              <input id="debugDepthInput" type="number" step="1" inputmode="numeric" placeholder="Depth" />
+              <button id="debugDepthGo" type="button">Go</button>
+            </div>
+          </div>
         </div>
       </div>
       <div id="headerInfo"></div>
