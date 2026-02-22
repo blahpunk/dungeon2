@@ -1149,13 +1149,16 @@ const MONSTER_TYPES = {
 
 function monsterStatsForDepth(type, z) {
   const spec = MONSTER_TYPES[type] ?? MONSTER_TYPES.rat;
-  const depth = clamp(z, 0, 60);
-  const hpScale = 1 + Math.min(1.8, depth * 0.12);
-  const atkScale = 1 + Math.min(1.2, depth * 0.08);
-  const maxHp = Math.max(1, Math.floor(spec.maxHp * hpScale));
-  const atkLo = Math.max(1, Math.floor(spec.atkLo * atkScale));
-  const atkHi = Math.max(atkLo, Math.floor(spec.atkHi * atkScale));
-  return { ...spec, maxHp, atkLo, atkHi };
+  const depth = clamp(Math.floor(z ?? 0), 0, 160);
+  // Monsters effectively gain levels with depth, so deeper floors stay threatening.
+  const level = 1 + depth + Math.floor(Math.max(0, depth - 6) * 0.4);
+  const levelBonus = Math.max(0, level - 1);
+  const hpScale = 1 + depth * 0.14 + Math.max(0, depth - 12) * 0.03;
+  const atkScale = 1 + depth * 0.08 + Math.max(0, depth - 12) * 0.02;
+  const maxHp = Math.max(1, Math.floor(spec.maxHp * hpScale + levelBonus * 90));
+  const atkLo = Math.max(1, Math.floor(spec.atkLo * atkScale + levelBonus * 12));
+  const atkHi = Math.max(atkLo, Math.floor(spec.atkHi * atkScale + levelBonus * 18));
+  return { ...spec, level, maxHp, atkLo, atkHi };
 }
 
 const METAL_TIERS = [
@@ -3071,11 +3074,17 @@ function playerAttackDamage(state) {
   const hi = Math.max(lo, p.atkHi + p.atkBonus);
   return lo + Math.floor(Math.random() * (hi - lo + 1));
 }
-function reduceIncomingDamage(state, dmg) {
-  const def = state.player.defBonus;
-  if (def <= 0) return dmg;
-  const blocked = Math.min(dmg, Math.floor(Math.random() * (def + 1)));
-  return Math.max(0, dmg - blocked);
+function reduceIncomingDamage(state, dmg, attackerDepth = null) {
+  const def = Math.max(0, state.player.defBonus ?? 0);
+  if (def <= 0) return Math.max(1, Math.floor(dmg));
+
+  const depth = clamp(Math.floor(attackerDepth ?? state.player.z ?? 0), 0, 160);
+  // Depth-based armor penetration keeps very high armor from trivializing deep floors.
+  const penetration = 1 + depth * 0.018;
+  const effectiveDef = def / penetration;
+  const mitigation = effectiveDef / (effectiveDef + 1800);
+  const reduced = Math.floor(dmg * (1 - mitigation));
+  return Math.max(1, reduced);
 }
 function killPlayer(state) {
   state.player.hp = 0;
@@ -3704,7 +3713,7 @@ function monsterHitPlayer(state, monster, baseDmgLo, baseDmgHi, verb = "hits") {
   let raw = baseDmgLo + Math.floor(Math.random() * (baseDmgHi - baseDmgLo + 1));
 
   // Progressive difficulty: additional small bonus by depth for all monsters
-  const depth = clamp(monster.z ?? state.player.z, 0, 60);
+  const depth = clamp(monster.z ?? state.player.z, 0, 160);
   const depthBonus = Math.floor(depth / 8) * 40;
   raw += depthBonus;
 
@@ -3716,7 +3725,7 @@ function monsterHitPlayer(state, monster, baseDmgLo, baseDmgHi, verb = "hits") {
     return;
   }
 
-  const dmg = reduceIncomingDamage(state, raw);
+  const dmg = reduceIncomingDamage(state, raw, depth);
   state.player.hp -= dmg;
   pushLog(state, `The ${nm} ${verb} you for ${dmg}.`);
   if (state.player.hp <= 0) killPlayer(state);
@@ -3748,6 +3757,14 @@ function monstersTurn(state) {
     if ((m.cd ?? 0) > 0) m.cd -= 1;
 
     const spec = monsterStatsForDepth(m.type, m.z ?? z);
+    if ((m.maxHp ?? 0) !== spec.maxHp) {
+      const hpRatio = m.maxHp > 0 ? clamp(m.hp / m.maxHp, 0, 1) : 1;
+      m.maxHp = spec.maxHp;
+      m.hp = Math.max(1, Math.min(m.maxHp, Math.round(m.maxHp * hpRatio)));
+      if (m.origin === "base") {
+        state.entityOverrides.set(m.id, { x: m.x, y: m.y, z: m.z, hp: m.hp, cd: m.cd ?? 0 });
+      }
+    }
     const mdx = p.x - m.x, mdy = p.y - m.y;
     const distMan = Math.abs(mdx) + Math.abs(mdy);
     const adj = distMan === 1;
