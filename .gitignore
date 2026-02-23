@@ -116,3 +116,4 @@ secrets.*
 *.crt
 *.log
 logs/
+clone.bat
