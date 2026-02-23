@@ -2,8 +2,7 @@
 // v4.5
 // - UI/Controls:
 //   - "E" is now contextual: interacts with shrines OR uses stairs (up/down) when standing on them.
-//   - Confirm prompts for starting a New Run via "R", and for clicking New Seed / Hard Reset buttons.
-//     Prompts explain exactly what each action does.
+//   - "New Dungeon" reset flow now uses an in-game confirmation overlay (button + "R" hotkey).
 
 const CHUNK = 32;
 const TILE = 256;
@@ -56,8 +55,17 @@ const EDGE_SOFT_PX = Math.max(2, Math.floor(TILE * 0.08));
 // ---------- DOM ----------
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
+const canAdminControls = document.body?.dataset?.canAdminControls === "1";
+const isAuthenticatedUser = document.body?.dataset?.isAuthenticated === "1";
+const saveApiCsrfToken = document.body?.dataset?.saveCsrf ?? "";
+const saveSlotMax = Math.max(1, Number.parseInt(document.body?.dataset?.saveMaxSlots ?? "10", 10) || 10);
+const saveNameMaxLen = Math.max(1, Number.parseInt(document.body?.dataset?.saveNameMaxLen ?? "48", 10) || 48);
 const metaEl = document.getElementById("meta");
 const headerInfoEl = document.getElementById("headerInfo");
+const btnNewEl = document.getElementById("btnNew");
+const btnFogEl = document.getElementById("btnFog");
+const btnSaveGameEl = document.getElementById("btnExport");
+const btnLoadGameEl = document.getElementById("btnImport");
 const vitalsDisplayEl = document.getElementById("vitalsDisplay");
 const logPanelEl = document.getElementById("logPanel");
 const logEl = document.getElementById("log");
@@ -65,6 +73,7 @@ const logTickerEl = document.getElementById("logTicker");
 const contextActionBtn = document.getElementById("contextActionBtn");
 const contextPotionBtn = document.getElementById("contextPotionBtn");
 const contextAttackListEl = document.getElementById("contextAttackList");
+const dpadCenterBtnEl = document.querySelector('.dpad-btn.center[data-dx="0"][data-dy="0"]');
 const depthDisplayEl = document.getElementById("depthDisplay");
 const invOverlayEl = document.getElementById("invOverlay");
 const mobileOverlayBackdropEl = document.getElementById("mobileOverlayBackdrop");
@@ -89,6 +98,20 @@ const effectsTextEl = document.getElementById("effectsText");
 const deathOverlayEl = document.getElementById("deathOverlay");
 const btnRespawnEl = document.getElementById("btnRespawn");
 const btnNewDungeonEl = document.getElementById("btnNewDungeon");
+const newDungeonConfirmOverlayEl = document.getElementById("newDungeonConfirmOverlay");
+const newDungeonConfirmSummaryEl = document.getElementById("newDungeonConfirmSummary");
+const newDungeonConfirmStartEl = document.getElementById("newDungeonConfirmStart");
+const newDungeonConfirmCancelEl = document.getElementById("newDungeonConfirmCancel");
+const saveGameOverlayEl = document.getElementById("saveGameOverlay");
+const saveGameTitleEl = document.getElementById("saveGameTitle");
+const saveGameModeEl = document.getElementById("saveGameMode");
+const saveGameNameRowEl = document.getElementById("saveGameNameRow");
+const saveGameNameInputEl = document.getElementById("saveGameNameInput");
+const saveGameCreateBtnEl = document.getElementById("saveGameCreateBtn");
+const saveGameListEl = document.getElementById("saveGameList");
+const saveGameStatusEl = document.getElementById("saveGameStatus");
+const saveGameCloseBtnEl = document.getElementById("saveGameCloseBtn");
+const saveGameRefreshBtnEl = document.getElementById("saveGameRefreshBtn");
 const shopOverlayEl = document.getElementById("shopOverlay");
 const shopCloseBtnEl = document.getElementById("shopCloseBtn");
 const shopTabBuyEl = document.getElementById("shopTabBuy");
@@ -175,6 +198,12 @@ const overlaySections = { equipmentCollapsed: false, inventoryCollapsed: false }
 const mobileUi = { gearOpen: false, logExpanded: false };
 let mobileUiSig = "";
 let contextAuxSignature = "";
+let dpadCenterSignature = "";
+let newDungeonConfirmResolver = null;
+let newDungeonResetPending = false;
+const saveMenuUi = { open: false, mode: "load", saves: [], loading: false };
+let saveNameWasEdited = false;
+let lastAutoSaveName = "";
 const MOBILE_VISIBILITY_BOOST =
   (typeof window !== "undefined" && window.matchMedia && window.matchMedia("(pointer: coarse)").matches) ||
   (typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || ""));
@@ -189,8 +218,32 @@ function stateDebug(state) {
   state.debug = normalizeDebugFlags(state?.debug);
   return state.debug;
 }
+function canUseAdminControls() {
+  return !!canAdminControls;
+}
+function enforceAdminControlPolicy(state) {
+  if (!state || canUseAdminControls()) return false;
+  const d = stateDebug(state);
+  let changed = false;
+  if (d.godmode) {
+    d.godmode = false;
+    changed = true;
+  }
+  if (d.freeShopping) {
+    d.freeShopping = false;
+    changed = true;
+  }
+  if (!fogEnabled) {
+    fogEnabled = true;
+    changed = true;
+  }
+  if (toggleGodmodeEl) toggleGodmodeEl.checked = false;
+  if (toggleFreeShoppingEl) toggleFreeShoppingEl.checked = false;
+  if (debugMenuEl?.classList.contains("show")) setDebugMenuOpen(false);
+  return changed;
+}
 function setDebugMenuOpen(open) {
-  if (!debugMenuEl) return;
+  if (!debugMenuEl || !canUseAdminControls()) return;
   debugMenuEl.classList.toggle("show", !!open);
   debugMenuEl.setAttribute("aria-hidden", open ? "false" : "true");
   if (btnDebugMenuEl) btnDebugMenuEl.setAttribute("aria-expanded", open ? "true" : "false");
@@ -203,6 +256,7 @@ function updateDebugMenuUi(state) {
   if (debugLevelInputEl) debugLevelInputEl.value = `${Math.max(1, Math.floor(state?.player?.level ?? 1))}`;
 }
 function setDebugFlag(state, key, enabled) {
+  if (!canUseAdminControls()) return;
   const d = stateDebug(state);
   const next = !!enabled;
   if (d[key] === next) return;
@@ -213,6 +267,7 @@ function setDebugFlag(state, key, enabled) {
 }
 
 function setPlayerLevelDebug(state, targetLevel) {
+  if (!canUseAdminControls()) return false;
   const p = state.player;
   if (!p || !Number.isFinite(targetLevel)) return false;
   const prevLevel = Math.max(1, Math.floor(p.level ?? 1));
@@ -295,6 +350,7 @@ function ensureTeleportLanding(state) {
 }
 
 function teleportPlayerToDepth(state, targetDepth) {
+  if (!canUseAdminControls()) return false;
   const p = state.player;
   if (!p || p.dead) return false;
   if (!Number.isFinite(targetDepth)) return false;
@@ -2067,6 +2123,396 @@ function updateDeathOverlay(state) {
   deathOverlayEl.setAttribute("aria-hidden", show ? "false" : "true");
 }
 
+function isNewDungeonConfirmOpen() {
+  return !!newDungeonConfirmOverlayEl?.classList.contains("show");
+}
+
+function setNewDungeonConfirmOpen(open) {
+  if (!newDungeonConfirmOverlayEl) return;
+  const show = !!open;
+  if (show) {
+    closeMobilePanels();
+    setDebugMenuOpen(false);
+  }
+  newDungeonConfirmOverlayEl.classList.toggle("show", show);
+  newDungeonConfirmOverlayEl.setAttribute("aria-hidden", show ? "false" : "true");
+  if (show) newDungeonConfirmStartEl?.focus();
+}
+
+function buildNewDungeonResetSummary(state) {
+  const p = state?.player ?? {};
+  const level = Math.max(1, Math.floor(p.level ?? 1));
+  const xp = Math.max(0, Math.floor(p.xp ?? 0));
+  const xpNeeded = Math.max(1, Math.floor(xpToNext(level)));
+  const inv = Array.isArray(state?.inv) ? state.inv : [];
+  let invTotal = 0;
+  for (const entry of inv) {
+    const count = Math.max(1, Math.floor(entry?.count ?? 1));
+    invTotal += count;
+  }
+  const equippedCount = ["weapon", "head", "chest", "legs"]
+    .map((slot) => p?.equip?.[slot])
+    .filter((it) => !!it)
+    .length;
+  const depth = Math.trunc(p.z ?? 0);
+  const depthLabel = depth === SURFACE_LEVEL ? "Surface" : `Depth ${depth}`;
+  const exploredChunks = state?.exploredChunks?.size ?? 0;
+  const seenTiles = state?.seen?.size ?? 0;
+  const turn = Math.max(0, Math.floor(state?.turn ?? 0));
+
+  return (
+    `Level: ${level} (${xp}/${xpNeeded} XP)\n` +
+    `Items: ${inv.length} inventory stacks (${invTotal} total), ${equippedCount} equipped\n` +
+    `Progress: ${depthLabel}, ${exploredChunks} explored chunks, ${seenTiles} discovered tiles, turn ${turn}\n\n` +
+    "Starting a new dungeon resets this run's level, items, and progress."
+  );
+}
+
+function resolveNewDungeonConfirm(confirmed) {
+  const resolver = newDungeonConfirmResolver;
+  newDungeonConfirmResolver = null;
+  setNewDungeonConfirmOpen(false);
+  if (resolver) resolver(!!confirmed);
+}
+
+function openNewDungeonConfirm(state) {
+  if (newDungeonConfirmResolver) return Promise.resolve(false);
+  const summary = buildNewDungeonResetSummary(state);
+  if (!newDungeonConfirmOverlayEl || !newDungeonConfirmSummaryEl) {
+    return Promise.resolve(confirm(`Start a NEW DUNGEON?\n\n${summary}`));
+  }
+  newDungeonConfirmSummaryEl.textContent = summary;
+  setNewDungeonConfirmOpen(true);
+  return new Promise((resolve) => {
+    newDungeonConfirmResolver = resolve;
+  });
+}
+
+async function requestNewDungeonReset(state) {
+  const run = state ?? game;
+  if (!run || newDungeonResetPending) return false;
+  newDungeonResetPending = true;
+  try {
+    const confirmed = await openNewDungeonConfirm(run);
+    if (!confirmed) return false;
+    closeShopOverlay();
+    game = makeNewGame();
+    enforceAdminControlPolicy(game);
+    updateDebugMenuUi(game);
+    setDebugMenuOpen(false);
+    updateContextActionButton(game);
+    updateDeathOverlay(game);
+    refreshSaveNameFromLive(true);
+    saveNow(game);
+    return true;
+  } finally {
+    newDungeonResetPending = false;
+  }
+}
+
+function isSaveGameOverlayOpen() {
+  return !!saveGameOverlayEl?.classList.contains("show");
+}
+
+function setSaveGameStatus(message, isError = false) {
+  if (!saveGameStatusEl) return;
+  saveGameStatusEl.textContent = message ?? "";
+  saveGameStatusEl.style.color = isError ? "#ff9aa8" : "#b8c6df";
+}
+
+function formatSaveTimestamp(value) {
+  const dt = new Date(value);
+  if (!Number.isFinite(dt.getTime())) return value || "";
+  return dt.toLocaleString();
+}
+
+function defaultServerSaveNameForState(state) {
+  const level = Math.max(1, Math.floor(state?.player?.level ?? 1));
+  const depth = Math.trunc(state?.player?.z ?? 0);
+  const now = new Date();
+  const two = (n) => String(n).padStart(2, "0");
+  const stamp = `${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())} ${two(now.getHours())}:${two(now.getMinutes())}:${two(now.getSeconds())}`;
+  return `Lvl ${level}, Depth ${depth}, ${stamp}`.slice(0, saveNameMaxLen);
+}
+
+function refreshSaveNameFromLive(force = false) {
+  if (!saveGameNameInputEl || !game) return;
+  const liveName = defaultServerSaveNameForState(game);
+  const current = saveGameNameInputEl.value.trim();
+  const shouldReplace =
+    force ||
+    !saveNameWasEdited ||
+    current === "" ||
+    current === lastAutoSaveName;
+  if (shouldReplace) {
+    saveGameNameInputEl.value = liveName;
+    saveNameWasEdited = false;
+  }
+  lastAutoSaveName = liveName;
+}
+
+function requireSaveLogin() {
+  const msg = "Log in with Google to use Save Game and Load Game.";
+  alert(msg);
+  if (game) pushLog(game, msg);
+}
+
+function closeSaveGameOverlay() {
+  saveMenuUi.open = false;
+  if (!saveGameOverlayEl) return;
+  saveGameOverlayEl.classList.remove("show");
+  saveGameOverlayEl.setAttribute("aria-hidden", "true");
+}
+
+function setSaveGameOverlayOpen(open) {
+  if (!saveGameOverlayEl) return;
+  const show = !!open;
+  if (show) {
+    closeMobilePanels();
+    setDebugMenuOpen(false);
+    setNewDungeonConfirmOpen(false);
+    closeShopOverlay();
+  }
+  saveMenuUi.open = show;
+  saveGameOverlayEl.classList.toggle("show", show);
+  saveGameOverlayEl.setAttribute("aria-hidden", show ? "false" : "true");
+  if (show) {
+    if (saveMenuUi.mode === "save") saveGameNameInputEl?.focus();
+    else saveGameCloseBtnEl?.focus();
+  }
+}
+
+async function saveApiRequest(method = "GET", body = null, query = "") {
+  const q = query ? `&${query}` : "";
+  const url = `./index.php?api=savegames${q}`;
+  const headers = { Accept: "application/json" };
+  const init = { method, credentials: "same-origin", headers };
+  if (body !== null) {
+    headers["Content-Type"] = "application/json";
+    headers["X-CSRF-Token"] = saveApiCsrfToken;
+    init.body = JSON.stringify(body);
+  }
+  const resp = await fetch(url, init);
+  let data = null;
+  try { data = await resp.json(); } catch {}
+  if (!resp.ok || !data?.ok) {
+    const msg = data?.error ?? `Request failed (${resp.status})`;
+    const err = new Error(msg);
+    err.response = data;
+    throw err;
+  }
+  return data;
+}
+
+function renderSaveGameOverlay() {
+  if (!saveGameListEl || !saveGameTitleEl || !saveGameModeEl || !saveGameNameRowEl) return;
+  const mode = saveMenuUi.mode === "save" ? "save" : "load";
+  const saves = Array.isArray(saveMenuUi.saves) ? saveMenuUi.saves : [];
+  const full = saves.length >= saveSlotMax;
+
+  saveGameTitleEl.textContent = mode === "save" ? "Save Game" : "Load Game";
+  saveGameModeEl.textContent =
+    mode === "save"
+      ? `Store this run on the server. You can keep up to ${saveSlotMax} saves.`
+      : `Load one of your server saves (${saves.length}/${saveSlotMax} used).`;
+  saveGameNameRowEl.style.display = mode === "save" ? "grid" : "none";
+  if (saveGameCreateBtnEl) {
+    saveGameCreateBtnEl.disabled = saveMenuUi.loading || (mode === "save" && full);
+  }
+  if (mode === "save") refreshSaveNameFromLive(false);
+
+  saveGameListEl.innerHTML = "";
+  if (!saves.length) {
+    const empty = document.createElement("div");
+    empty.className = "saveGameEmpty";
+    empty.textContent = "(no save slots yet)";
+    saveGameListEl.appendChild(empty);
+    return;
+  }
+
+  for (const save of saves) {
+    const row = document.createElement("div");
+    row.className = "saveGameRow";
+
+    const main = document.createElement("div");
+    main.className = "saveGameRowMain";
+    const name = document.createElement("div");
+    name.className = "saveGameRowName";
+    name.textContent = save.name ?? "(unnamed save)";
+    const meta = document.createElement("div");
+    meta.className = "saveGameRowMeta";
+    const updated = formatSaveTimestamp(save.updated_at ?? "");
+    meta.textContent = `Lvl ${save.level ?? 1}, Depth ${save.depth ?? 0} · Updated ${updated}`;
+    main.appendChild(name);
+    main.appendChild(meta);
+    row.appendChild(main);
+
+    const actions = document.createElement("div");
+    actions.className = "saveGameRowActions";
+
+    if (mode === "load") {
+      const loadBtn = document.createElement("button");
+      loadBtn.type = "button";
+      loadBtn.textContent = "Load";
+      loadBtn.disabled = saveMenuUi.loading;
+      loadBtn.addEventListener("click", () => {
+        void loadSaveFromServer(save.id);
+      });
+      actions.appendChild(loadBtn);
+    } else {
+      const overwriteBtn = document.createElement("button");
+      overwriteBtn.type = "button";
+      overwriteBtn.textContent = "Overwrite";
+      overwriteBtn.disabled = saveMenuUi.loading;
+      overwriteBtn.addEventListener("click", () => {
+        void saveCurrentGameToServer(save.id);
+      });
+      actions.appendChild(overwriteBtn);
+    }
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.type = "button";
+    deleteBtn.className = "saveGameDanger";
+    deleteBtn.textContent = "Delete";
+    deleteBtn.disabled = saveMenuUi.loading;
+    deleteBtn.addEventListener("click", () => {
+      if (!confirm(`Delete save "${save.name ?? "this save"}"?`)) return;
+      void deleteServerSave(save.id);
+    });
+    actions.appendChild(deleteBtn);
+
+    row.appendChild(actions);
+    saveGameListEl.appendChild(row);
+  }
+}
+
+async function refreshSaveGameList() {
+  if (!isAuthenticatedUser) return [];
+  saveMenuUi.loading = true;
+  renderSaveGameOverlay();
+  try {
+    const data = await saveApiRequest("GET");
+    saveMenuUi.saves = Array.isArray(data.saves) ? data.saves : [];
+    setSaveGameStatus("", false);
+    return saveMenuUi.saves;
+  } catch (err) {
+    setSaveGameStatus(err?.message ?? "Could not refresh saves.", true);
+    return saveMenuUi.saves;
+  } finally {
+    saveMenuUi.loading = false;
+    renderSaveGameOverlay();
+  }
+}
+
+async function openSaveGameOverlay(mode = "load") {
+  if (!isAuthenticatedUser) {
+    requireSaveLogin();
+    return false;
+  }
+  saveMenuUi.mode = mode === "save" ? "save" : "load";
+  setSaveGameOverlayOpen(true);
+  if (saveMenuUi.mode === "save") refreshSaveNameFromLive(true);
+  setSaveGameStatus("", false);
+  await refreshSaveGameList();
+  return true;
+}
+
+async function deleteServerSave(saveId) {
+  if (!isAuthenticatedUser || !saveId) return false;
+  saveMenuUi.loading = true;
+  renderSaveGameOverlay();
+  setSaveGameStatus("Deleting save...", false);
+  try {
+    const data = await saveApiRequest("POST", { action: "delete", id: saveId });
+    saveMenuUi.saves = Array.isArray(data.saves) ? data.saves : [];
+    setSaveGameStatus("Save deleted.", false);
+    renderSaveGameOverlay();
+    return true;
+  } catch (err) {
+    setSaveGameStatus(err?.message ?? "Delete failed.", true);
+    renderSaveGameOverlay();
+    return false;
+  } finally {
+    saveMenuUi.loading = false;
+    renderSaveGameOverlay();
+  }
+}
+
+async function loadSaveFromServer(saveId) {
+  if (!isAuthenticatedUser || !saveId) return false;
+  saveMenuUi.loading = true;
+  renderSaveGameOverlay();
+  setSaveGameStatus("Loading save...", false);
+  try {
+    const data = await saveApiRequest("GET", null, `load=${encodeURIComponent(saveId)}`);
+    const payload = String(data?.save?.payload ?? "");
+    const loaded = importSave(payload);
+    if (!loaded) {
+      throw new Error("Save payload is invalid.");
+    }
+    game = loaded;
+    enforceAdminControlPolicy(game);
+    updateDebugMenuUi(game);
+    setDebugMenuOpen(false);
+    updateContextActionButton(game);
+    updateDeathOverlay(game);
+    saveNow(game);
+    refreshSaveNameFromLive(true);
+    setSaveGameStatus(`Loaded "${data?.save?.name ?? "save"}".`, false);
+    closeSaveGameOverlay();
+    return true;
+  } catch (err) {
+    setSaveGameStatus(err?.message ?? "Load failed.", true);
+    return false;
+  } finally {
+    saveMenuUi.loading = false;
+    renderSaveGameOverlay();
+  }
+}
+
+async function saveCurrentGameToServer(overwriteId = "") {
+  if (!isAuthenticatedUser || !game) return false;
+  const mode = saveMenuUi.mode === "save" ? "save" : "load";
+  if (mode !== "save") saveMenuUi.mode = "save";
+  refreshSaveNameFromLive(false);
+  const requestedName = (saveGameNameInputEl?.value ?? "").trim();
+  const fallbackName = defaultServerSaveNameForState(game);
+  const name = (requestedName || fallbackName).slice(0, saveNameMaxLen);
+  const payload = exportSave(game);
+  const level = Math.max(1, Math.floor(game?.player?.level ?? 1));
+  const depth = Math.trunc(game?.player?.z ?? 0);
+
+  saveMenuUi.loading = true;
+  renderSaveGameOverlay();
+  setSaveGameStatus(overwriteId ? "Overwriting save..." : "Saving game...", false);
+  try {
+    const data = await saveApiRequest("POST", {
+      action: "save",
+      overwrite_id: overwriteId || undefined,
+      name,
+      payload,
+      level,
+      depth,
+    });
+    saveMenuUi.saves = Array.isArray(data.saves) ? data.saves : [];
+    refreshSaveNameFromLive(true);
+    setSaveGameStatus(data?.message ?? "Game saved.", false);
+    renderSaveGameOverlay();
+    return true;
+  } catch (err) {
+    const responseCode = err?.response?.code ?? "";
+    if (responseCode === "SAVE_LIMIT_REACHED") {
+      saveMenuUi.saves = Array.isArray(err?.response?.saves) ? err.response.saves : saveMenuUi.saves;
+    }
+    setSaveGameStatus(err?.message ?? "Save failed.", true);
+    renderSaveGameOverlay();
+    return false;
+  } finally {
+    saveMenuUi.loading = false;
+    renderSaveGameOverlay();
+  }
+}
+
 function stairContextLabel(state, dir) {
   const z = state?.player?.z ?? 0;
   if (dir === "down" && z === SURFACE_LEVEL) return "Enter dungeon";
@@ -2293,6 +2739,56 @@ function setContextButtonContent(btn, label, iconSpec = null) {
   btn.appendChild(content);
 }
 
+function updateDpadCenterButton(state, action) {
+  if (!dpadCenterBtnEl) return;
+  const iconSpec = action ? iconSpecForContextAction(state, action) : null;
+  const signature = [
+    action?.type ?? "none",
+    action?.label ?? "",
+    action?.targetMonsterId ?? "",
+    action?.pickupType ?? "",
+    iconSpec?.spriteId ?? "",
+    iconSpec?.glyph ?? "",
+    iconSpec?.color ?? "",
+  ].join("|");
+  if (signature === dpadCenterSignature) return;
+  dpadCenterSignature = signature;
+
+  dpadCenterBtnEl.innerHTML = "";
+  const label = action?.label ?? "Context Action";
+  dpadCenterBtnEl.title = label;
+  dpadCenterBtnEl.setAttribute("aria-label", label);
+
+  if (iconSpec?.spriteId && SPRITE_SOURCES[iconSpec.spriteId]) {
+    const iconWrap = document.createElement("span");
+    iconWrap.className = "dpadCenterIcon";
+    const img = document.createElement("img");
+    img.src = SPRITE_SOURCES[iconSpec.spriteId];
+    img.alt = "";
+    iconWrap.appendChild(img);
+    dpadCenterBtnEl.appendChild(iconWrap);
+    return;
+  }
+
+  if (iconSpec?.glyph) {
+    const iconWrap = document.createElement("span");
+    iconWrap.className = "dpadCenterIcon";
+    const glyph = document.createElement("span");
+    glyph.className = "dpadCenterGlyph";
+    glyph.textContent = iconSpec.glyph;
+    if (iconSpec.color) glyph.style.color = iconSpec.color;
+    iconWrap.appendChild(glyph);
+    dpadCenterBtnEl.appendChild(iconWrap);
+    return;
+  }
+
+  const fallback = document.createElement("span");
+  fallback.className = "dpadCenterFallback";
+  fallback.setAttribute("aria-hidden", "true");
+  fallback.textContent = "\u25CF";
+  dpadCenterBtnEl.appendChild(fallback);
+}
+
 function updateContextActionButton(state, occupancy = null) {
   if (!contextActionBtn) return;
   const action = resolveContextAction(state, occupancy);
@@ -2300,6 +2796,7 @@ function updateContextActionButton(state, occupancy = null) {
     contextActionBtn.disabled = true;
     setContextButtonContent(contextActionBtn, "No Action", null);
     contextActionBtn.dataset.actionType = "none";
+    updateDpadCenterButton(state, null);
     updatePotionContextButton(state, null);
     updateAttackContextButtons(state, occupancy, null);
     return;
@@ -2307,6 +2804,7 @@ function updateContextActionButton(state, occupancy = null) {
   contextActionBtn.disabled = false;
   setContextButtonContent(contextActionBtn, action.label, iconSpecForContextAction(state, action));
   contextActionBtn.dataset.actionType = action.type;
+  updateDpadCenterButton(state, action);
 
   updatePotionContextButton(state, action);
   updateAttackContextButtons(state, occupancy, action);
@@ -2360,6 +2858,7 @@ function buildAuxContextActions(state, occupancy = null, primaryAction = null) {
   if (here === STAIRS_DOWN && primaryAction?.type !== "stairs-down") {
     actions.push({
       id: "aux|stairs-down",
+      type: "stairs-down",
       label: stairContextLabel(state, "down"),
       run: () => tryUseStairs(state, "down"),
     });
@@ -2367,6 +2866,7 @@ function buildAuxContextActions(state, occupancy = null, primaryAction = null) {
   if (here === STAIRS_UP && primaryAction?.type !== "stairs-up") {
     actions.push({
       id: "aux|stairs-up",
+      type: "stairs-up",
       label: stairContextLabel(state, "up"),
       run: () => tryUseStairs(state, "up"),
     });
@@ -2379,6 +2879,8 @@ function buildAuxContextActions(state, occupancy = null, primaryAction = null) {
     const nm = MONSTER_TYPES[entry.monster.type]?.name ?? entry.monster.type;
     actions.push({
       id: `aux|attack|${id}`,
+      type: "attack",
+      targetMonsterId: id,
       monsterType: entry.monster.type,
       label: `Attack ${nm} (${entry.dir})`,
       run: () => attackMonsterById(state, id),
@@ -2391,6 +2893,7 @@ function buildAuxContextActions(state, occupancy = null, primaryAction = null) {
     if (shop && primaryAction?.type !== "shop") {
       actions.push({
         id: "aux|shop",
+        type: "shop",
         label: "Open Shop",
         run: () => interactShopkeeper(state),
       });
@@ -2403,6 +2906,7 @@ function buildAuxContextActions(state, occupancy = null, primaryAction = null) {
       const more = takeable.length > 1 ? ` (+${takeable.length - 1} more)` : "";
       actions.push({
         id: `aux|pickup|${target.type}|${takeable.length}`,
+        type: "pickup",
         pickupType: target.type,
         label: `Take ${nm}${more}`,
         run: () => pickup(state),
@@ -2413,6 +2917,7 @@ function buildAuxContextActions(state, occupancy = null, primaryAction = null) {
     if (shrine && primaryAction?.type !== "shrine") {
       actions.push({
         id: "aux|shrine",
+        type: "shrine",
         label: "Pray at Shrine",
         run: () => interactShrine(state),
       });
@@ -2437,8 +2942,8 @@ function updateAttackContextButtons(state, occupancy = null, primaryAction = nul
   }
 
   contextAttackListEl.innerHTML = "";
-  contextAttackListEl.classList.toggle("grid", actions.length > 2);
-  contextAttackListEl.style.display = actions.length > 2 ? "grid" : "flex";
+  contextAttackListEl.classList.remove("grid");
+  contextAttackListEl.style.display = "flex";
   for (const action of actions) {
     const btn = document.createElement("button");
     btn.type = "button";
@@ -2791,14 +3296,6 @@ function respawnAtStart(state) {
   updateContextActionButton(state);
   updateDeathOverlay(state);
   saveNow(state);
-}
-
-function confirmNewDungeonFromDeath() {
-  return confirm(
-    "Start a NEW DUNGEON?\n\n" +
-    "This will reset all current run progress (position, depth, discovered areas, inventory, and progress).\n\n" +
-    "Start new dungeon now?"
-  );
 }
 
 function makeNewGame(seedStr = randomSeedString()) {
@@ -4642,24 +5139,6 @@ function takeTurn(state, didSpendTurn) {
   saveNow(state);
 }
 
-// ---------- Confirm helpers ----------
-function confirmNewRun() {
-  return confirm(
-    "Start a NEW RUN with a NEW SEED?\n\n" +
-    "This will immediately replace your current run (position, dungeon progress, inventory, everything).\n" +
-    "If you want to keep it, use Export first.\n\n" +
-    "Start new run now?"
-  );
-}
-function confirmHardReset() {
-  return confirm(
-    "HARD RESET (delete saved game)?\n\n" +
-    "This will permanently delete the saved run from this browser (localStorage).\n" +
-    "You will start a brand-new run with a new seed.\n\n" +
-    "Hard reset now?"
-  );
-}
-
 // ---------- Input ----------
 function isTextEntryElement(el) {
   if (!(el instanceof Element)) return false;
@@ -4683,6 +5162,16 @@ function shouldIgnoreGameHotkeys(e) {
 function onKey(state, e) {
   const k = e.key.toLowerCase();
   if (shouldIgnoreGameHotkeys(e)) return;
+  if (isSaveGameOverlayOpen()) {
+    e.preventDefault();
+    if (k === "escape") closeSaveGameOverlay();
+    return;
+  }
+  if (isNewDungeonConfirmOpen()) {
+    e.preventDefault();
+    if (k === "escape") resolveNewDungeonConfirm(false);
+    return;
+  }
   if (k === "escape" && closeMobilePanels()) {
     e.preventDefault();
     return;
@@ -4736,13 +5225,16 @@ function onKey(state, e) {
   else if (k === "m") { e.preventDefault(); minimapEnabled = !minimapEnabled; saveNow(state); }
   else if (e.key === ">") { e.preventDefault(); takeTurn(state, tryUseStairs(state, "down")); }
   else if (e.key === "<") { e.preventDefault(); takeTurn(state, tryUseStairs(state, "up")); }
-  else if (k === "f") { e.preventDefault(); fogEnabled = !fogEnabled; saveNow(state); }
+  else if (k === "f") {
+    if (!canUseAdminControls()) return;
+    e.preventDefault();
+    fogEnabled = !fogEnabled;
+    saveNow(state);
+  }
 
   else if (k === "r") {
     e.preventDefault();
-    if (!confirmNewRun()) return;
-    game = makeNewGame();
-    saveNow(game);
+    void requestNewDungeonReset(state);
   }
 }
 
@@ -5114,64 +5606,76 @@ function loadSaveOrNew() {
     const s = localStorage.getItem(SAVE_KEY);
     if (s) {
       const loaded = importSave(s);
-      if (loaded) return loaded;
+      if (loaded) {
+        const changed = enforceAdminControlPolicy(loaded);
+        if (changed) saveNow(loaded);
+        return loaded;
+      }
     }
   } catch {}
 
   // Avoid leaking transformed state to any future direct canvas operations.
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   const g = makeNewGame();
+  enforceAdminControlPolicy(g);
   saveNow(g);
   return g;
 }
 
 // ---------- Buttons ----------
-document.getElementById("btnNew").addEventListener("click", () => {
-  // "New Seed" (new run w/ new seed) â€” confirm
-  if (!confirmNewRun()) return;
-  closeShopOverlay();
-  game = makeNewGame();
-  updateDebugMenuUi(game);
-  setDebugMenuOpen(false);
-  saveNow(game);
+btnNewEl?.addEventListener("click", () => {
+  void requestNewDungeonReset(game);
 });
 
-document.getElementById("btnFog").addEventListener("click", () => {
+btnFogEl?.addEventListener("click", () => {
+  if (!canUseAdminControls()) return;
   fogEnabled = !fogEnabled;
   saveNow(game);
 });
 
-document.getElementById("btnReset").addEventListener("click", () => {
-  // Hard Reset â€” confirm
-  if (!confirmHardReset()) return;
-  localStorage.removeItem(SAVE_KEY);
-  closeShopOverlay();
-  game = makeNewGame();
-  updateDebugMenuUi(game);
-  setDebugMenuOpen(false);
-  saveNow(game);
+btnSaveGameEl?.addEventListener("click", () => {
+  void openSaveGameOverlay("save");
 });
 
-document.getElementById("btnExport").addEventListener("click", async () => {
-  const save = exportSave(game);
-  try { await navigator.clipboard.writeText(save); alert("Save copied to clipboard."); }
-  catch { prompt("Copy this save string:", save); }
+btnLoadGameEl?.addEventListener("click", () => {
+  void openSaveGameOverlay("load");
 });
-
-document.getElementById("btnImport").addEventListener("click", () => {
-  const str = prompt("Paste save string:");
-  if (!str) return;
-  const loaded = importSave(str);
-  if (!loaded) return alert("Invalid save.");
-  closeShopOverlay();
-  game = loaded;
-  updateDebugMenuUi(game);
-  setDebugMenuOpen(false);
-  updateContextActionButton(game);
-  updateDeathOverlay(game);
-  saveNow(game);
+saveGameCloseBtnEl?.addEventListener("click", () => {
+  closeSaveGameOverlay();
+});
+saveGameOverlayEl?.addEventListener("click", (e) => {
+  if (e.target === saveGameOverlayEl) closeSaveGameOverlay();
+});
+saveGameRefreshBtnEl?.addEventListener("click", () => {
+  if (!isAuthenticatedUser) {
+    requireSaveLogin();
+    return;
+  }
+  void refreshSaveGameList();
+});
+saveGameCreateBtnEl?.addEventListener("click", () => {
+  void saveCurrentGameToServer("");
+});
+saveGameNameInputEl?.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  void saveCurrentGameToServer("");
+});
+saveGameNameInputEl?.addEventListener("input", () => {
+  const raw = saveGameNameInputEl.value.trim();
+  saveNameWasEdited = raw !== "" && raw !== lastAutoSaveName;
+});
+newDungeonConfirmStartEl?.addEventListener("click", () => {
+  resolveNewDungeonConfirm(true);
+});
+newDungeonConfirmCancelEl?.addEventListener("click", () => {
+  resolveNewDungeonConfirm(false);
+});
+newDungeonConfirmOverlayEl?.addEventListener("click", (e) => {
+  if (e.target === newDungeonConfirmOverlayEl) resolveNewDungeonConfirm(false);
 });
 btnDebugMenuEl?.addEventListener("click", (e) => {
+  if (!canUseAdminControls()) return;
   e.stopPropagation();
   if (game) updateDebugMenuUi(game);
   const open = !(debugMenuEl?.classList.contains("show"));
@@ -5186,20 +5690,34 @@ document.addEventListener("click", (e) => {
   setDebugMenuOpen(false);
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") setDebugMenuOpen(false);
+  if (e.key !== "Escape") return;
+  if (isSaveGameOverlayOpen()) {
+    e.preventDefault();
+    closeSaveGameOverlay();
+    return;
+  }
+  if (isNewDungeonConfirmOpen()) {
+    e.preventDefault();
+    resolveNewDungeonConfirm(false);
+    return;
+  }
+  setDebugMenuOpen(false);
 });
 toggleGodmodeEl?.addEventListener("change", () => {
   if (!game) return;
+  if (!canUseAdminControls()) return;
   setDebugFlag(game, "godmode", !!toggleGodmodeEl.checked);
   updateDebugMenuUi(game);
 });
 toggleFreeShoppingEl?.addEventListener("change", () => {
   if (!game) return;
+  if (!canUseAdminControls()) return;
   setDebugFlag(game, "freeShopping", !!toggleFreeShoppingEl.checked);
   updateDebugMenuUi(game);
   if (shopUi.open) renderShopOverlay(game);
 });
 const runDebugDepthTeleport = () => {
+  if (!canUseAdminControls()) return;
   if (!game || !debugDepthInputEl) return;
   const raw = debugDepthInputEl.value.trim();
   if (!raw.length) {
@@ -5224,6 +5742,7 @@ debugDepthInputEl?.addEventListener("keydown", (e) => {
   runDebugDepthTeleport();
 });
 const runDebugSetLevel = () => {
+  if (!canUseAdminControls()) return;
   if (!game || !debugLevelInputEl) return;
   const raw = debugLevelInputEl.value.trim();
   if (!raw.length) {
@@ -5292,12 +5811,7 @@ btnRespawnEl?.addEventListener("click", () => {
   respawnAtStart(game);
 });
 btnNewDungeonEl?.addEventListener("click", () => {
-  if (!confirmNewDungeonFromDeath()) return;
-  closeShopOverlay();
-  game = makeNewGame();
-  updateDebugMenuUi(game);
-  setDebugMenuOpen(false);
-  saveNow(game);
+  void requestNewDungeonReset(game);
 });
 
 const bindEquipBadgeUnequip = (el, slot) => {
@@ -5339,6 +5853,8 @@ window.addEventListener("unhandledrejection", (e) => showFatal(e.reason ?? e));
 
 try {
   game = loadSaveOrNew();
+  if (enforceAdminControlPolicy(game)) saveNow(game);
+  refreshSaveNameFromLive(true);
   updateOverlaySectionUi();
   updateDebugMenuUi(game);
   updateContextActionButton(game);
